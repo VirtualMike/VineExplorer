@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Vine Explorer</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>&#127808; Vine Explorer</h1>
+  </header>
+
+  <section class="stats" id="stats">
+    <div class="stat-card">
+      <span class="stat-value" id="stat-total">—</span>
+      <span class="stat-label">Total</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value" id="stat-available">—</span>
+      <span class="stat-label">Available</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value" id="stat-etv">—</span>
+      <span class="stat-label">With ETV</span>
+    </div>
+    <div class="stat-card removed">
+      <span class="stat-value" id="stat-removed">—</span>
+      <span class="stat-label">Removed</span>
+    </div>
+  </section>
+
+  <section class="actions">
+    <button id="btn-compact" class="btn btn-primary">&#9776; Open Compact View</button>
+    <button id="btn-vine"    class="btn">&#127808; Go to Amazon Vine</button>
+    <button id="btn-options" class="btn">&#9881; Settings &amp; Keywords</button>
+  </section>
+
+  <footer>
+    <span id="footer-note">Browse Vine to cache products</span>
+  </footer>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Vine Explorer — Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <header>
+    <h1>&#127808; Vine Explorer — Settings</h1>
+  </header>
+
+  <main>
+    <!-- Keywords -->
+    <section class="card" id="section-keywords">
+      <h2>&#128269; Keyword Alerts</h2>
+      <p class="hint">Products containing any of these keywords will be highlighted and trigger a notification.</p>
+
+      <div class="keyword-input-row">
+        <input type="text" id="kw-input" placeholder="e.g. coffee, desk lamp, wireless" autocomplete="off" />
+        <button id="kw-add" class="btn btn-primary">Add</button>
+      </div>
+
+      <ul id="kw-list" class="kw-list">
+        <li class="kw-empty">No keywords yet.</li>
+      </ul>
+    </section>
+
+    <!-- Database management -->
+    <section class="card" id="section-db">
+      <h2>&#128451; Database</h2>
+
+      <div class="db-stats" id="db-stats">
+        <div class="db-stat"><span id="ds-total">—</span><label>Total</label></div>
+        <div class="db-stat"><span id="ds-available">—</span><label>Available</label></div>
+        <div class="db-stat"><span id="ds-removed">—</span><label>Removed</label></div>
+        <div class="db-stat"><span id="ds-etv">—</span><label>With ETV</label></div>
+      </div>
+
+      <div class="purge-row">
+        <label for="purge-days">Purge removed products older than</label>
+        <select id="purge-days">
+          <option value="7">7 days</option>
+          <option value="14">14 days</option>
+          <option value="30" selected>30 days</option>
+          <option value="60">60 days</option>
+          <option value="90">90 days</option>
+        </select>
+        <button id="btn-purge" class="btn btn-danger">Purge</button>
+      </div>
+
+      <p id="purge-result" class="hint hidden"></p>
+    </section>
+  </main>
+
+  <script src="options.js" type="module"></script>
+</body>
+</html>

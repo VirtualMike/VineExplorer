@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Vine Explorer",
+  "version": "1.0.0",
+  "description": "Enhanced browsing for Amazon Vine — ETV display, full search, and keyword alerts",
+  "permissions": [
+    "storage",
+    "notifications",
+    "alarms",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.amazon.com/vine/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.amazon.com/vine/vine-items*"],
+      "js": ["content/content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Vine Explorer"
+  },
+  "options_page": "options/options.html"
+}

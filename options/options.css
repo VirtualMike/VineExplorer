@@ -1,0 +1,185 @@
+/* options/options.css */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font: 14px/1.6 "Amazon Ember", -apple-system, Arial, sans-serif;
+  background: #f3f3f3;
+  color: #111;
+  min-height: 100vh;
+}
+
+header {
+  background: #232f3e;
+  color: #fff;
+  padding: 14px 32px;
+}
+
+header h1 { font-size: 18px; font-weight: 700; }
+
+main {
+  max-width: 680px;
+  margin: 24px auto;
+  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Cards */
+.card {
+  background: #fff;
+  border: 1px solid #d5d9d9;
+  border-radius: 8px;
+  padding: 20px 24px;
+}
+
+.card h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.hint {
+  font-size: 12px;
+  color: #777;
+  margin-bottom: 14px;
+}
+
+.hidden { display: none !important; }
+
+/* Keyword input row */
+.keyword-input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.keyword-input-row input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #d5d9d9;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.keyword-input-row input:focus {
+  outline: 2px solid #ff9900;
+  border-color: transparent;
+}
+
+/* Keyword list */
+.kw-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kw-empty {
+  color: #888;
+  font-size: 13px;
+  font-style: italic;
+}
+
+.kw-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f0f2f2;
+  border: 1px solid #d5d9d9;
+  border-radius: 20px;
+  padding: 4px 12px 4px 14px;
+  font-size: 13px;
+}
+
+.kw-text { font-weight: 500; }
+
+.btn-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #888;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+  transition: color .1s;
+}
+
+.btn-delete:hover { color: #c0392b; }
+
+/* DB stats */
+.db-stats {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.db-stat {
+  flex: 1;
+  background: #f8f8f8;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  padding: 10px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.db-stat span {
+  font-size: 22px;
+  font-weight: 700;
+  color: #232f3e;
+}
+
+.db-stat label {
+  font-size: 10px;
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+
+/* Purge row */
+.purge-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.purge-row select {
+  padding: 6px 10px;
+  border: 1px solid #d5d9d9;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+}
+
+/* Buttons */
+.btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid #d5d9d9;
+  background: #f0f2f2;
+  color: #111;
+  font: 13px/1.4 "Amazon Ember", Arial, sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .1s;
+}
+
+.btn.btn-primary {
+  background: #ff9900;
+  border-color: #e68a00;
+}
+
+.btn.btn-primary:hover { background: #e68a00; }
+
+.btn.btn-danger {
+  background: #c0392b;
+  border-color: #a93226;
+  color: #fff;
+}
+
+.btn.btn-danger:hover { background: #a93226; }
