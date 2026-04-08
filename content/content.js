@@ -13,7 +13,9 @@
 
   // ── Init ───────────────────────────────────────────────────────────────────
   async function init() {
+    console.log('[VineExplorer] Initializing…');
     await loadKeywords();
+    console.log('[VineExplorer] Keywords loaded:', keywords);
     injectStatusBar();
     processAllTiles();
     observePageChanges();
@@ -55,11 +57,13 @@
   // ── Tile processing ────────────────────────────────────────────────────────
   function processAllTiles() {
     const tiles = document.querySelectorAll('.vvp-item-tile');
+    console.log(`[VineExplorer] Found ${tiles.length} tiles`);
     tiles.forEach(processTile);
   }
 
   async function processTile(tile) {
     const asin = extractAsin(tile);
+    console.log('[VineExplorer] Tile ASIN:', asin);
     if (!asin || processedAsins.has(asin)) return;
     processedAsins.add(asin);
 
@@ -189,9 +193,10 @@
   }
 
   async function extractFromDetailPanel(panel) {
+    console.log('[VineExplorer] Detail panel triggered');
     // ASIN — from the product title link href  e.g. /dp/B0GS9J1KSQ
     const titleLink = panel.querySelector('#vvp-product-details-modal--product-title');
-    if (!titleLink) return;
+    if (!titleLink) { console.warn('[VineExplorer] No title link found in panel'); return; }
     const asinMatch = (titleLink.getAttribute('href') || '').match(/\/dp\/([A-Z0-9]{10})/);
     if (!asinMatch) return;
     const asin = asinMatch[1];
@@ -283,15 +288,28 @@
   }
 
   // ── Utility ────────────────────────────────────────────────────────────────
-  function send(msg) {
+  // Retries if the service worker isn't awake yet (MV3 SW is ephemeral).
+  function send(msg, retries = 4, delayMs = 300) {
     return new Promise((resolve) => {
-      chrome.runtime.sendMessage(msg, (res) => {
-        if (chrome.runtime.lastError) {
-          resolve({});
-        } else {
-          resolve(res ?? {});
-        }
-      });
+      function attempt(remaining) {
+        chrome.runtime.sendMessage(msg, (res) => {
+          const err = chrome.runtime.lastError;
+          if (err) {
+            const isConnErr = err.message?.includes('Receiving end does not exist') ||
+                              err.message?.includes('Could not establish connection');
+            if (remaining > 0 && isConnErr) {
+              console.warn(`[VineExplorer] SW not ready, retrying (${remaining} left)…`);
+              setTimeout(() => attempt(remaining - 1), delayMs);
+            } else {
+              console.error('[VineExplorer] Message failed:', err.message, msg);
+              resolve({});
+            }
+          } else {
+            resolve(res ?? {});
+          }
+        });
+      }
+      attempt(retries);
     });
   }
 
