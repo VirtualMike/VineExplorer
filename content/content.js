@@ -154,86 +154,71 @@
   }
 
   // ── Detail panel scraping ──────────────────────────────────────────────────
-  // When the user clicks "See details", Amazon shows a modal/drawer.
-  // We watch for it and extract ETV + description.
+  // The modal (#vvp-product-details-modal--main) already exists in the DOM.
+  // Amazon shows/hides it by toggling style.display — NOT by adding/removing nodes.
+  // We watch for the style attribute change to detect when it becomes visible.
 
   function watchDetailPanel() {
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-          if (node.nodeType !== Node.ELEMENT_NODE) continue;
+    function observeModal(modal) {
+      let lastDisplay = modal.style.display;
 
-          const panel = node.matches?.('#vvp-product-details-modal--content, .vvp-details-tab--content')
-            ? node
-            : node.querySelector?.('#vvp-product-details-modal--content, .vvp-details-tab--content');
-
-          if (panel) {
-            // Small delay to ensure content is fully rendered
-            setTimeout(() => extractFromDetailPanel(panel), 300);
-          }
+      const obs = new MutationObserver(() => {
+        const cur = modal.style.display;
+        // Became visible (transitioned away from 'none' or '' initial hidden state)
+        if (cur !== 'none' && cur !== '' && lastDisplay !== cur) {
+          // Wait for ETV spinner to resolve before reading
+          setTimeout(() => extractFromDetailPanel(modal), 500);
         }
-      }
-    });
+        lastDisplay = cur;
+      });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+      obs.observe(modal, { attributes: true, attributeFilter: ['style'] });
+    }
+
+    const modal = document.getElementById('vvp-product-details-modal--main');
+    if (modal) {
+      observeModal(modal);
+    } else {
+      // Modal not yet in DOM — wait for it
+      const waiter = new MutationObserver(() => {
+        const m = document.getElementById('vvp-product-details-modal--main');
+        if (m) { waiter.disconnect(); observeModal(m); }
+      });
+      waiter.observe(document.body, { childList: true, subtree: true });
+    }
   }
 
   async function extractFromDetailPanel(panel) {
-    // ASIN — try to find from a "Add to queue" button or data attributes
-    const orderBtn = panel.querySelector('input[data-asin], [data-asin]');
-    let asin = orderBtn?.getAttribute('data-asin');
+    // ASIN — from the product title link href  e.g. /dp/B0GS9J1KSQ
+    const titleLink = panel.querySelector('#vvp-product-details-modal--product-title');
+    if (!titleLink) return;
+    const asinMatch = (titleLink.getAttribute('href') || '').match(/\/dp\/([A-Z0-9]{10})/);
+    if (!asinMatch) return;
+    const asin = asinMatch[1];
 
-    if (!asin) {
-      // Try the recommendation-id attribute
-      const recInput = panel.querySelector('input[data-recommendation-id]');
-      if (recInput) {
-        const recId = recInput.getAttribute('data-recommendation-id') || '';
-        asin = recId.split('|').find(p => /^[A-Z0-9]{10}$/.test(p));
-      }
-    }
-
-    if (!asin) return;
-
-    // ETV — Amazon shows it in a span with specific text
+    // ETV — #vvp-product-details-modal--tax-value-string  e.g. "$14.99"
     let etv = null;
-    const etvEl = panel.querySelector(
-      '.vvp-product-details-modal--etv-amount, ' +
-      '[class*="etv-amount"], ' +
-      '[class*="etv"]'
-    );
+    const etvEl = panel.querySelector('#vvp-product-details-modal--tax-value-string');
     if (etvEl) {
-      const match = etvEl.textContent.match(/\$?([\d,]+\.?\d*)/);
-      if (match) etv = parseFloat(match[1].replace(',', ''));
+      const m = etvEl.textContent.match(/\$?([\d,]+\.?\d*)/);
+      if (m) etv = parseFloat(m[1].replace(',', ''));
     }
 
-    // Fallback: search all text for "Est. Tax Value" pattern
-    if (etv === null) {
-      const allText = panel.textContent || '';
-      const etvMatch = allText.match(/[Ee]st(?:imated)?\s+[Tt]ax\s+[Vv]alue[:\s]+\$?([\d,]+\.?\d*)/);
-      if (etvMatch) etv = parseFloat(etvMatch[1].replace(',', ''));
-    }
+    // Description — feature bullets list
+    const descEl = panel.querySelector('#vvp-product-details-modal--feature-bullets');
+    const description = descEl?.outerHTML?.trim() || '';
 
-    // Description
-    const descEl = panel.querySelector(
-      '.vvp-product-details-modal--description-text, ' +
-      '[class*="description-text"], ' +
-      '.a-expander-content'
+    // Vendor — "by SZHSYJY"  strip the leading "by "
+    const vendorEl = panel.querySelector('#vvp-product-details-modal--by-line');
+    const vendor = (vendorEl?.textContent || '').replace(/^by\s+/i, '').trim();
+
+    // Has options — variations container has a select dropdown
+    const hasOptions = !!panel.querySelector(
+      '#vvp-product-details-modal--variations-container select'
     );
-    const description = descEl?.innerHTML?.trim() || '';
 
-    // Vendor/Brand
-    const vendorEl = panel.querySelector('[class*="vendor"], [class*="brand"], .a-size-base.ve-vendor');
-    const vendor = vendorEl?.textContent?.trim() || '';
-
-    // Has options (select/dropdown in the panel)
-    const hasOptions = !!panel.querySelector('select, .a-dropdown-container');
-
-    // Title (may already be stored, but grab it if available)
-    const titleEl = panel.querySelector(
-      '.vvp-product-details-modal--product-title, ' +
-      '[class*="product-title"]'
-    );
-    const title = titleEl?.textContent?.trim() || undefined;
+    // Title
+    const title = titleLink.textContent?.trim() || undefined;
 
     const product = { asin, etv, description, vendor, hasOptions, available: true };
     if (title) product.title = title;
@@ -241,11 +226,10 @@
     const res = await send({ type: 'SAVE_PRODUCT', product });
     const saved = res?.product;
 
-    // Update the tile in the page (if visible)
     if (saved) {
       const tile = findTileByAsin(asin);
       if (tile) {
-        processedAsins.delete(asin); // allow re-enhancement
+        processedAsins.delete(asin);
         enhanceTile(tile, saved);
         processedAsins.add(asin);
       }
