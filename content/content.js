@@ -10,6 +10,8 @@
   let keywords       = [];
   let statusBar      = null;
   let processedAsins = new Set();
+  let detailFetchQueue = [];
+  let detailFetchRunning = false;
 
   // ── Init ───────────────────────────────────────────────────────────────────
   async function init() {
@@ -70,6 +72,11 @@
     const product = extractProductFromTile(tile, asin);
     if (!product) return;
 
+    const etvFromTile = extractEtvFromTile(tile);
+    if (etvFromTile !== null) {
+      product.etv = etvFromTile;
+    }
+
     // Save to DB (SW will check keyword matches)
     const res = await send({ type: 'SAVE_PRODUCT', product });
     const saved = res?.product;
@@ -77,6 +84,10 @@
     // Enhance the tile with cached data
     if (saved) {
       enhanceTile(tile, saved);
+    }
+
+    if (saved?.etv == null) {
+      scheduleDetailFetch(tile, asin);
     }
   }
 
@@ -118,6 +129,157 @@
     if (!asin) return null;
 
     return { asin, title, imageUrl, available: true };
+  }
+
+  function extractEtvFromTile(tile) {
+    if (!tile) return null;
+
+    const selectors = [
+      '[data-etv]',
+      '[data-tax-value]',
+      '.vvp-item-tax-value',
+      '.vvp-item-tax-string',
+      '.vvp-item-price',
+      '.vvp-item-price-string'
+    ];
+
+    for (const selector of selectors) {
+      const el = tile.querySelector(selector);
+      if (el?.textContent) {
+        const match = el.textContent.match(/\$?([\d,]+\.?\d*)/);
+        if (match) return parseFloat(match[1].replace(/,/g, ''));
+      }
+    }
+
+    const text = Array.from(tile.querySelectorAll('span, div, p, strong'))
+      .map(el => el.textContent.trim())
+      .filter(Boolean)
+      .join(' ');
+
+    const match = text.match(/(?:ETV|Estimated Taxable Value|Tax Value|Taxable Value)[:\s]*\$?([\d,]+\.?\d*)/i);
+    if (match) return parseFloat(match[1].replace(/,/g, ''));
+
+    return null;
+  }
+
+  function scheduleDetailFetch(tile, asin) {
+    if (!tile || !asin) return;
+    if (tile.dataset.veEtvFetchScheduled === '1') return;
+    tile.dataset.veEtvFetchScheduled = '1';
+    detailFetchQueue.push({ tile, asin });
+    processDetailFetchQueue();
+  }
+
+  async function processDetailFetchQueue() {
+    if (detailFetchRunning) return;
+    detailFetchRunning = true;
+
+    while (detailFetchQueue.length > 0) {
+      const { tile, asin } = detailFetchQueue.shift();
+      if (!document.contains(tile)) continue;
+      await fetchDetailPanelForTile(tile, asin);
+      await sleep(randomBetween(1200, 2200));
+    }
+
+    detailFetchRunning = false;
+  }
+
+  async function fetchDetailPanelForTile(tile, asin) {
+    const trigger = findDetailToggle(tile);
+    if (!trigger) return;
+
+    const modalReady = waitForDetailModalOpen(7000);
+    trigger.click();
+    await modalReady.catch(() => null);
+    await sleep(1000);
+    closeDetailPanel();
+  }
+
+  function findDetailToggle(tile) {
+    if (!tile) return null;
+
+    const candidates = Array.from(tile.querySelectorAll('button, a, [role="button"]'));
+    const matchText = /detail|details|see details|product details/i;
+
+    for (const el of candidates) {
+      const text = (el.textContent || '').trim();
+      const label = (el.getAttribute('aria-label') || '').trim();
+      if (matchText.test(text) || matchText.test(label)) {
+        return el;
+      }
+    }
+
+    return null;
+  }
+
+  function waitForDetailModalOpen(timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+      const modal = document.getElementById('vvp-product-details-modal--main');
+      const start = Date.now();
+
+      function checkOpen(el) {
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetParent !== null;
+      }
+
+      if (checkOpen(modal)) {
+        resolve(modal);
+        return;
+      }
+
+      const observer = new MutationObserver(() => {
+        const currentModal = document.getElementById('vvp-product-details-modal--main');
+        if (checkOpen(currentModal)) {
+          observer.disconnect();
+          resolve(currentModal);
+        } else if (Date.now() - start > timeoutMs) {
+          observer.disconnect();
+          reject(new Error('Detail modal did not open in time'));
+        }
+      });
+
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
+    });
+  }
+
+  function closeDetailPanel() {
+    const modal = document.getElementById('vvp-product-details-modal--main');
+    if (!modal) return;
+
+    const closeButton = modal.querySelector('button[aria-label*="close"], button[title*="Close"], .a-button-close, [data-action="close"]');
+    if (closeButton) {
+      closeButton.click();
+      return;
+    }
+
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true });
+    document.dispatchEvent(esc);
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function randomBetween(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  function extractPagination() {
+    const pag = document.querySelector('.a-pagination');
+    if (!pag) return { current: 1, total: 1 };
+
+    const links = pag.querySelectorAll('a');
+    let maxPage = 1;
+    links.forEach(a => {
+      const href = a.href;
+      const match = href.match(/[?&]page=(\d+)/);
+      if (match) maxPage = Math.max(maxPage, +match[1]);
+    });
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const current = +urlParams.get('page') || 1;
+    return { current, total: maxPage };
   }
 
   function enhanceTile(tile, product) {
@@ -279,11 +441,15 @@
 
   // ── Listen for rescrape request from service worker ────────────────────────
   function listenForRescrape() {
-    chrome.runtime.onMessage.addListener((msg) => {
+    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg.type === 'REQUEST_RESCRAPE') {
         processedAsins.clear();
         processAllTiles();
+      } else if (msg.type === 'GET_PAGINATION_INFO') {
+        const pagination = extractPagination();
+        sendResponse(pagination);
       }
+      return true;
     });
   }
 
