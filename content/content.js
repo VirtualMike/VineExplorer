@@ -1,7 +1,6 @@
 // content/content.js — Vine Explorer content script
 // Runs on: https://www.amazon.com/vine/vine-items*
-// NOTE: This script runs in a sandboxed content-script world.
-//       All DB access goes through chrome.runtime.sendMessage to the service worker.
+// NOTE: All DB access goes through chrome.runtime.sendMessage to the service worker.
 
 (function VineExplorer() {
   'use strict';
@@ -10,24 +9,28 @@
   let keywords       = [];
   let statusBar      = null;
   let processedAsins = new Set();
+  let fetchQueue     = [];
+  let isFetching     = false;
 
   // ── Init ───────────────────────────────────────────────────────────────────
   async function init() {
     console.log('[VineExplorer] Initializing…');
     await loadKeywords();
-    console.log('[VineExplorer] Keywords loaded:', keywords);
     injectStatusBar();
-    processAllTiles();
+    await processAllTiles();   // wait so fetchQueue is fully populated
     observePageChanges();
     watchDetailPanel();
     listenForRescrape();
     updateStatusCount();
+    // Start auto-fetch after page settles
+    setTimeout(runFetchQueue, 1500);
   }
 
-  // ── Load keywords from service worker ─────────────────────────────────────
+  // ── Keywords ───────────────────────────────────────────────────────────────
   async function loadKeywords() {
     const res = await send({ type: 'GET_KEYWORDS' });
     keywords  = (res.keywords || []).map(k => k.keyword);
+    console.log('[VineExplorer] Keywords loaded:', keywords);
   }
 
   // ── Status bar ─────────────────────────────────────────────────────────────
@@ -40,142 +43,247 @@
       <button id="ve-open-compact" title="Open compact view">&#9776; Compact View</button>
     `;
     document.body.appendChild(statusBar);
-
     document.getElementById('ve-open-compact').addEventListener('click', () => {
       chrome.runtime.sendMessage({ type: 'OPEN_COMPACT' });
     });
   }
 
+  function setStatus(text) {
+    const el = document.getElementById('ve-status-text');
+    if (el) el.textContent = text;
+  }
+
   async function updateStatusCount() {
     const res = await send({ type: 'GET_STATS' });
-    if (statusBar && res) {
-      const el = document.getElementById('ve-status-text');
-      if (el) el.textContent = `Vine Explorer — ${res.available} products cached`;
+    if (res?.available !== undefined) {
+      setStatus(`Vine Explorer — ${res.available} products cached`);
     }
   }
 
   // ── Tile processing ────────────────────────────────────────────────────────
-  function processAllTiles() {
-    const tiles = document.querySelectorAll('.vvp-item-tile');
+  async function processAllTiles() {
+    const tiles = Array.from(document.querySelectorAll('.vvp-item-tile'));
     console.log(`[VineExplorer] Found ${tiles.length} tiles`);
-    tiles.forEach(processTile);
+    await Promise.all(tiles.map(tile => processTile(tile)));
   }
 
   async function processTile(tile) {
     const asin = extractAsin(tile);
-    console.log('[VineExplorer] Tile ASIN:', asin);
     if (!asin || processedAsins.has(asin)) return;
     processedAsins.add(asin);
 
     const product = extractProductFromTile(tile, asin);
     if (!product) return;
 
-    // Save to DB (SW will check keyword matches)
-    const res = await send({ type: 'SAVE_PRODUCT', product });
+    const res   = await send({ type: 'SAVE_PRODUCT', product });
     const saved = res?.product;
 
-    // Enhance the tile with cached data
     if (saved) {
       enhanceTile(tile, saved);
+      // Queue for auto-fetch if ETV not yet known
+      if (saved.etv === null) enqueueForFetch(tile);
     }
   }
 
   function extractAsin(tile) {
-    // Try various locations Amazon puts the ASIN
     const btn = tile.querySelector('input[data-recommendation-id], input[data-asin]');
     if (btn) {
-      const recId = btn.getAttribute('data-recommendation-id') || '';
+      const recId       = btn.getAttribute('data-recommendation-id') || '';
       const asinFromRec = recId.split('|').find(p => /^[A-Z0-9]{10}$/.test(p));
       if (asinFromRec) return asinFromRec;
       const direct = btn.getAttribute('data-asin');
       if (direct) return direct;
     }
-
-    // Try data attributes on the tile itself
     const tileAsin = tile.getAttribute('data-asin');
     if (tileAsin) return tileAsin;
-
-    // Try the product link URL
     const link = tile.querySelector('a[href*="/dp/"]');
     if (link) {
       const match = link.href.match(/\/dp\/([A-Z0-9]{10})/);
       if (match) return match[1];
     }
-
     return null;
   }
 
   function extractProductFromTile(tile, asin) {
-    const titleEl = tile.querySelector(
+    const titleEl  = tile.querySelector(
       '.vvp-item-product-title-container a span, ' +
       '.vvp-item-product-title-container span.a-truncate-cut, ' +
       '.vvp-item-product-title-container span'
     );
-    const imgEl = tile.querySelector('img');
-    const title = titleEl?.textContent?.trim() || '';
-    const imageUrl = imgEl?.src || imgEl?.getAttribute('data-src') || '';
-
-    if (!asin) return null;
-
-    return { asin, title, imageUrl, available: true };
+    const imgEl    = tile.querySelector('img');
+    return {
+      asin,
+      title:    titleEl?.textContent?.trim() || '',
+      imageUrl: imgEl?.src || imgEl?.getAttribute('data-src') || '',
+      available: true
+    };
   }
 
   function enhanceTile(tile, product) {
-    // Remove old enhancements if re-processing
     tile.querySelectorAll('.ve-badge, .ve-keyword-tag').forEach(el => el.remove());
-
     const container = tile.querySelector('.vvp-item-tile-content') || tile;
 
-    // ETV badge
     if (product.etv !== null) {
       const badge = document.createElement('div');
-      badge.className = 've-badge ve-etv-badge';
+      badge.className  = 've-badge ve-etv-badge';
       badge.textContent = `ETV: $${product.etv.toFixed(2)}`;
       container.appendChild(badge);
     }
 
-    // Options badge
     if (product.hasOptions) {
-      const optBadge = document.createElement('div');
-      optBadge.className = 've-badge ve-options-badge';
-      optBadge.textContent = 'Has Options';
-      container.appendChild(optBadge);
+      const badge = document.createElement('div');
+      badge.className  = 've-badge ve-options-badge';
+      badge.textContent = 'Has Options';
+      container.appendChild(badge);
     }
 
-    // Keyword highlight
-    if (product.keywordsMatched && product.keywordsMatched.length > 0) {
+    if (product.keywordsMatched?.length > 0) {
       tile.classList.add('ve-keyword-match');
       const tag = document.createElement('div');
-      tag.className = 've-keyword-tag';
+      tag.className  = 've-keyword-tag';
       tag.textContent = `\uD83D\uDD0D ${product.keywordsMatched.join(', ')}`;
       container.appendChild(tag);
     }
 
-    // Unavailable overlay
-    if (product.available === false) {
-      tile.classList.add('ve-unavailable');
+    if (product.available === false) tile.classList.add('ve-unavailable');
+  }
+
+  // ── Find tile by ASIN ──────────────────────────────────────────────────────
+  function findTileByAsin(asin) {
+    // data-asin on the tile itself
+    let tile = document.querySelector(`.vvp-item-tile[data-asin="${asin}"]`);
+    if (tile) return tile;
+
+    // data-asin on a submit button inside the tile
+    const btn = document.querySelector(`input[data-asin="${asin}"]`);
+    if (btn) return btn.closest('.vvp-item-tile');
+
+    // product link href contains /dp/ASIN  (most reliable on Vine)
+    const link = document.querySelector(`.vvp-item-tile a[href*="/dp/${asin}"]`);
+    if (link) return link.closest('.vvp-item-tile');
+
+    console.warn('[VineExplorer] Could not find tile for ASIN:', asin);
+    return null;
+  }
+
+  // ── Auto-fetch queue ───────────────────────────────────────────────────────
+  function enqueueForFetch(tile) {
+    const btn = tile.querySelector('input.a-button-input[type="submit"], input.a-button-input');
+    if (btn) fetchQueue.push({ tile, btn });
+  }
+
+  async function runFetchQueue() {
+    if (isFetching) return;
+
+    if (fetchQueue.length === 0) {
+      // Nothing to fetch on this page — navigate to find new products
+      await goToNextPage();
+      return;
+    }
+
+    isFetching = true;
+    console.log(`[VineExplorer] Auto-fetch: ${fetchQueue.length} tiles queued`);
+
+    while (fetchQueue.length > 0) {
+      const { tile, btn } = fetchQueue.shift();
+      setStatus(`Auto-fetching ETV… ${fetchQueue.length + 1} remaining`);
+
+      // Scroll tile into view (simulate human browsing)
+      tile.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await sleep(600 + Math.random() * 500);
+
+      // Click "See Details"
+      btn.click();
+
+      // Wait for ETV spinner to resolve
+      await waitForEtv();
+
+      // Close the modal before moving on
+      await closeModal();
+
+      // Human-like pause between tiles (2–4 seconds)
+      await sleep(2000 + Math.random() * 2000);
+    }
+
+    isFetching = false;
+    await updateStatusCount();
+
+    // Done with this page — move to next
+    await sleep(2000 + Math.random() * 1000);
+    await goToNextPage();
+  }
+
+  async function waitForEtv(maxWait = 8000) {
+    const interval = 200;
+    let waited = 0;
+    while (waited < maxWait) {
+      const modal   = document.getElementById('vvp-product-details-modal--main');
+      const spinner = document.getElementById('vvp-product-details-modal--tax-spinner');
+      const etvEl   = document.getElementById('vvp-product-details-modal--tax-value-string');
+
+      const modalOpen    = modal && modal.style.display !== 'none' && modal.style.display !== '';
+      const spinnerDone  = !spinner || spinner.style.display === 'none';
+      const etvPopulated = etvEl && etvEl.textContent.trim().length > 0;
+
+      if (modalOpen && spinnerDone && etvPopulated) return;
+
+      await sleep(interval);
+      waited += interval;
+    }
+    console.warn('[VineExplorer] waitForEtv timed out');
+  }
+
+  async function closeModal() {
+    const modal = document.getElementById('vvp-product-details-modal--main');
+    if (!modal || modal.style.display === 'none' || modal.style.display === '') return;
+
+    // 1. Dedicated close button
+    const closeBtn = document.querySelector(
+      '#vvp-product-details-modal .a-icon-close, ' +
+      '[data-action="a-modal-close"], ' +
+      '.vvp-modal-close'
+    );
+    if (closeBtn) { closeBtn.click(); await sleep(400); return; }
+
+    // 2. Click the overlay (parent of the modal content)
+    if (modal.parentElement) { modal.parentElement.click(); await sleep(400); }
+
+    // 3. Escape key fallback
+    if (modal.style.display !== 'none' && modal.style.display !== '') {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await sleep(400);
     }
   }
 
+  async function goToNextPage() {
+    const nextBtn = document.querySelector(
+      'ul.a-pagination .a-last:not(.a-disabled) a, ' +
+      'ul.a-pagination li.a-last a'
+    );
+    if (!nextBtn) {
+      console.log('[VineExplorer] No next page — all done.');
+      setStatus('Vine Explorer — all pages fetched ✓');
+      return;
+    }
+    console.log('[VineExplorer] Navigating to next page…');
+    setStatus('Vine Explorer — loading next page…');
+    nextBtn.click();
+  }
+
   // ── Detail panel scraping ──────────────────────────────────────────────────
-  // The modal (#vvp-product-details-modal--main) already exists in the DOM.
-  // Amazon shows/hides it by toggling style.display — NOT by adding/removing nodes.
-  // We watch for the style attribute change to detect when it becomes visible.
+  // The modal already exists in the DOM and is shown/hidden via style.display.
+  // Watch for the style attribute change instead of DOM node insertion.
 
   function watchDetailPanel() {
     function observeModal(modal) {
       let lastDisplay = modal.style.display;
-
       const obs = new MutationObserver(() => {
         const cur = modal.style.display;
-        // Became visible (transitioned away from 'none' or '' initial hidden state)
         if (cur !== 'none' && cur !== '' && lastDisplay !== cur) {
-          // Wait for ETV spinner to resolve before reading
           setTimeout(() => extractFromDetailPanel(modal), 500);
         }
         lastDisplay = cur;
       });
-
       obs.observe(modal, { attributes: true, attributeFilter: ['style'] });
     }
 
@@ -183,7 +291,6 @@
     if (modal) {
       observeModal(modal);
     } else {
-      // Modal not yet in DOM — wait for it
       const waiter = new MutationObserver(() => {
         const m = document.getElementById('vvp-product-details-modal--main');
         if (m) { waiter.disconnect(); observeModal(m); }
@@ -193,15 +300,13 @@
   }
 
   async function extractFromDetailPanel(panel) {
-    console.log('[VineExplorer] Detail panel triggered');
-    // ASIN — from the product title link href  e.g. /dp/B0GS9J1KSQ
     const titleLink = panel.querySelector('#vvp-product-details-modal--product-title');
-    if (!titleLink) { console.warn('[VineExplorer] No title link found in panel'); return; }
+    if (!titleLink) { console.warn('[VineExplorer] No title link in panel'); return; }
+
     const asinMatch = (titleLink.getAttribute('href') || '').match(/\/dp\/([A-Z0-9]{10})/);
     if (!asinMatch) return;
     const asin = asinMatch[1];
 
-    // ETV — #vvp-product-details-modal--tax-value-string  e.g. "$14.99"
     let etv = null;
     const etvEl = panel.querySelector('#vvp-product-details-modal--tax-value-string');
     if (etvEl) {
@@ -209,26 +314,23 @@
       if (m) etv = parseFloat(m[1].replace(',', ''));
     }
 
-    // Description — feature bullets list
-    const descEl = panel.querySelector('#vvp-product-details-modal--feature-bullets');
-    const description = descEl?.outerHTML?.trim() || '';
+    const descEl    = panel.querySelector('#vvp-product-details-modal--feature-bullets');
+    const vendorEl  = panel.querySelector('#vvp-product-details-modal--by-line');
+    const hasOptions = !!panel.querySelector('#vvp-product-details-modal--variations-container select');
 
-    // Vendor — "by SZHSYJY"  strip the leading "by "
-    const vendorEl = panel.querySelector('#vvp-product-details-modal--by-line');
-    const vendor = (vendorEl?.textContent || '').replace(/^by\s+/i, '').trim();
+    const product = {
+      asin,
+      etv,
+      description: descEl?.outerHTML?.trim() || '',
+      vendor:      (vendorEl?.textContent || '').replace(/^by\s+/i, '').trim(),
+      hasOptions,
+      title:       titleLink.textContent?.trim() || undefined,
+      available:   true
+    };
 
-    // Has options — variations container has a select dropdown
-    const hasOptions = !!panel.querySelector(
-      '#vvp-product-details-modal--variations-container select'
-    );
+    console.log(`[VineExplorer] Scraped: ${asin}  ETV=${etv}  options=${hasOptions}`);
 
-    // Title
-    const title = titleLink.textContent?.trim() || undefined;
-
-    const product = { asin, etv, description, vendor, hasOptions, available: true };
-    if (title) product.title = title;
-
-    const res = await send({ type: 'SAVE_PRODUCT', product });
+    const res   = await send({ type: 'SAVE_PRODUCT', product });
     const saved = res?.product;
 
     if (saved) {
@@ -243,28 +345,14 @@
     updateStatusCount();
   }
 
-  function findTileByAsin(asin) {
-    // Search by data-asin attribute
-    let tile = document.querySelector(`[data-asin="${asin}"].vvp-item-tile`);
-    if (tile) return tile;
-
-    // Search via button's recommendation id
-    const btn = document.querySelector(`input[data-asin="${asin}"]`);
-    if (btn) return btn.closest('.vvp-item-tile');
-
-    return null;
-  }
-
-  // ── MutationObserver for infinite scroll / pagination ─────────────────────
+  // ── MutationObserver for infinite scroll ──────────────────────────────────
   function observePageChanges() {
     const grid = document.querySelector('#vvp-items-grid, .vvp-items-grid, main');
     if (!grid) return;
-
     const obs = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType !== Node.ELEMENT_NODE) continue;
-
           if (node.classList?.contains('vvp-item-tile')) {
             processTile(node);
           } else {
@@ -273,22 +361,27 @@
         }
       }
     });
-
     obs.observe(grid, { childList: true, subtree: true });
   }
 
-  // ── Listen for rescrape request from service worker ────────────────────────
+  // ── Rescrape request from service worker ──────────────────────────────────
   function listenForRescrape() {
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg.type === 'REQUEST_RESCRAPE') {
         processedAsins.clear();
-        processAllTiles();
+        fetchQueue = [];
+        isFetching = false;
+        processAllTiles().then(() => setTimeout(runFetchQueue, 1000));
       }
     });
   }
 
   // ── Utility ────────────────────────────────────────────────────────────────
-  // Retries if the service worker isn't awake yet (MV3 SW is ephemeral).
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // Retries if the MV3 service worker isn't awake yet.
   function send(msg, retries = 4, delayMs = 300) {
     return new Promise((resolve) => {
       function attempt(remaining) {
@@ -301,7 +394,7 @@
               console.warn(`[VineExplorer] SW not ready, retrying (${remaining} left)…`);
               setTimeout(() => attempt(remaining - 1), delayMs);
             } else {
-              console.error('[VineExplorer] Message failed:', err.message, msg);
+              console.error('[VineExplorer] Message failed:', err.message);
               resolve({});
             }
           } else {
