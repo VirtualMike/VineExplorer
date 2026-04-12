@@ -75,6 +75,10 @@
     const product = extractProductFromTile(tile, asin);
     if (!product) return;
 
+    // Try to read ETV directly from tile markup (usually absent, but worth checking)
+    const etvFromTile = extractEtvFromTile(tile);
+    if (etvFromTile !== null) product.etv = etvFromTile;
+
     const res   = await send({ type: 'SAVE_PRODUCT', product });
     const saved = res?.product;
 
@@ -105,12 +109,12 @@
   }
 
   function extractProductFromTile(tile, asin) {
-    const titleEl  = tile.querySelector(
+    const titleEl = tile.querySelector(
       '.vvp-item-product-title-container a span, ' +
       '.vvp-item-product-title-container span.a-truncate-cut, ' +
       '.vvp-item-product-title-container span'
     );
-    const imgEl    = tile.querySelector('img');
+    const imgEl = tile.querySelector('img');
     return {
       asin,
       title:    titleEl?.textContent?.trim() || '',
@@ -119,20 +123,45 @@
     };
   }
 
+  // Attempt to read ETV from tile markup (Vine normally doesn't expose this,
+  // but included as a future-proof fallback).
+  function extractEtvFromTile(tile) {
+    if (!tile) return null;
+
+    const selectors = [
+      '[data-etv]', '[data-tax-value]',
+      '.vvp-item-tax-value', '.vvp-item-tax-string',
+      '.vvp-item-price', '.vvp-item-price-string'
+    ];
+    for (const sel of selectors) {
+      const el = tile.querySelector(sel);
+      if (el?.textContent) {
+        const m = el.textContent.match(/\$?([\d,]+\.?\d*)/);
+        if (m) return parseFloat(m[1].replace(/,/g, ''));
+      }
+    }
+
+    // Text-scan fallback
+    const text = Array.from(tile.querySelectorAll('span, div, p, strong'))
+      .map(el => el.textContent.trim()).filter(Boolean).join(' ');
+    const m = text.match(/(?:ETV|Estimated Taxable Value|Tax Value)[:\s]*\$?([\d,]+\.?\d*)/i);
+    return m ? parseFloat(m[1].replace(/,/g, '')) : null;
+  }
+
   function enhanceTile(tile, product) {
     tile.querySelectorAll('.ve-badge, .ve-keyword-tag').forEach(el => el.remove());
     const container = tile.querySelector('.vvp-item-tile-content') || tile;
 
     if (product.etv !== null) {
       const badge = document.createElement('div');
-      badge.className  = 've-badge ve-etv-badge';
+      badge.className   = 've-badge ve-etv-badge';
       badge.textContent = `ETV: $${product.etv.toFixed(2)}`;
       container.appendChild(badge);
     }
 
     if (product.hasOptions) {
       const badge = document.createElement('div');
-      badge.className  = 've-badge ve-options-badge';
+      badge.className   = 've-badge ve-options-badge';
       badge.textContent = 'Has Options';
       container.appendChild(badge);
     }
@@ -140,7 +169,7 @@
     if (product.keywordsMatched?.length > 0) {
       tile.classList.add('ve-keyword-match');
       const tag = document.createElement('div');
-      tag.className  = 've-keyword-tag';
+      tag.className   = 've-keyword-tag';
       tag.textContent = `\uD83D\uDD0D ${product.keywordsMatched.join(', ')}`;
       container.appendChild(tag);
     }
@@ -150,15 +179,13 @@
 
   // ── Find tile by ASIN ──────────────────────────────────────────────────────
   function findTileByAsin(asin) {
-    // data-asin on the tile itself
     let tile = document.querySelector(`.vvp-item-tile[data-asin="${asin}"]`);
     if (tile) return tile;
 
-    // data-asin on a submit button inside the tile
     const btn = document.querySelector(`input[data-asin="${asin}"]`);
     if (btn) return btn.closest('.vvp-item-tile');
 
-    // product link href contains /dp/ASIN  (most reliable on Vine)
+    // Most reliable on Vine: find via product link href
     const link = document.querySelector(`.vvp-item-tile a[href*="/dp/${asin}"]`);
     if (link) return link.closest('.vvp-item-tile');
 
@@ -176,7 +203,6 @@
     if (isFetching) return;
 
     if (fetchQueue.length === 0) {
-      // Nothing to fetch on this page — navigate to find new products
       await goToNextPage();
       return;
     }
@@ -188,28 +214,19 @@
       const { tile, btn } = fetchQueue.shift();
       setStatus(`Auto-fetching ETV… ${fetchQueue.length + 1} remaining`);
 
-      // Scroll tile into view (simulate human browsing)
       tile.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      await sleep(600 + Math.random() * 500);
+      await sleep(randomBetween(500, 900));
 
-      // Click "See Details"
       btn.click();
-
-      // Wait for ETV spinner to resolve
       await waitForEtv();
-
-      // Close the modal before moving on
       await closeModal();
 
-      // Human-like pause between tiles (2–4 seconds)
-      await sleep(2000 + Math.random() * 2000);
+      await sleep(randomBetween(2000, 4000));
     }
 
     isFetching = false;
     await updateStatusCount();
-
-    // Done with this page — move to next
-    await sleep(2000 + Math.random() * 1000);
+    await sleep(randomBetween(2000, 3000));
     await goToNextPage();
   }
 
@@ -221,11 +238,11 @@
       const spinner = document.getElementById('vvp-product-details-modal--tax-spinner');
       const etvEl   = document.getElementById('vvp-product-details-modal--tax-value-string');
 
-      const modalOpen    = modal && modal.style.display !== 'none' && modal.style.display !== '';
-      const spinnerDone  = !spinner || spinner.style.display === 'none';
-      const etvPopulated = etvEl && etvEl.textContent.trim().length > 0;
+      const modalOpen   = modal && modal.style.display !== 'none' && modal.style.display !== '';
+      const spinnerDone = !spinner || spinner.style.display === 'none';
+      const etvReady    = etvEl && etvEl.textContent.trim().length > 0;
 
-      if (modalOpen && spinnerDone && etvPopulated) return;
+      if (modalOpen && spinnerDone && etvReady) return;
 
       await sleep(interval);
       waited += interval;
@@ -241,11 +258,12 @@
     const closeBtn = document.querySelector(
       '#vvp-product-details-modal .a-icon-close, ' +
       '[data-action="a-modal-close"], ' +
-      '.vvp-modal-close'
+      '.vvp-modal-close, ' +
+      'button[aria-label*="close" i], button[title*="close" i]'
     );
     if (closeBtn) { closeBtn.click(); await sleep(400); return; }
 
-    // 2. Click the overlay (parent of the modal content)
+    // 2. Click overlay (parent of modal content)
     if (modal.parentElement) { modal.parentElement.click(); await sleep(400); }
 
     // 3. Escape key fallback
@@ -271,8 +289,7 @@
   }
 
   // ── Detail panel scraping ──────────────────────────────────────────────────
-  // The modal already exists in the DOM and is shown/hidden via style.display.
-  // Watch for the style attribute change instead of DOM node insertion.
+  // The modal already exists in DOM and is toggled via style.display.
 
   function watchDetailPanel() {
     function observeModal(modal) {
@@ -364,21 +381,43 @@
     obs.observe(grid, { childList: true, subtree: true });
   }
 
-  // ── Rescrape request from service worker ──────────────────────────────────
+  // ── Message listener ───────────────────────────────────────────────────────
   function listenForRescrape() {
-    chrome.runtime.onMessage.addListener((msg) => {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (msg.type === 'REQUEST_RESCRAPE') {
         processedAsins.clear();
         fetchQueue = [];
         isFetching = false;
         processAllTiles().then(() => setTimeout(runFetchQueue, 1000));
+      } else if (msg.type === 'GET_PAGINATION_INFO') {
+        sendResponse(extractPagination());
       }
+      return true;
     });
+  }
+
+  // ── Pagination info ────────────────────────────────────────────────────────
+  function extractPagination() {
+    const pag = document.querySelector('.a-pagination');
+    if (!pag) return { current: 1, total: 1 };
+
+    let maxPage = 1;
+    pag.querySelectorAll('a').forEach(a => {
+      const m = a.href.match(/[?&]page=(\d+)/);
+      if (m) maxPage = Math.max(maxPage, +m[1]);
+    });
+
+    const current = +(new URLSearchParams(window.location.search).get('page')) || 1;
+    return { current, total: maxPage };
   }
 
   // ── Utility ────────────────────────────────────────────────────────────────
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function randomBetween(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
   }
 
   // Retries if the MV3 service worker isn't awake yet.

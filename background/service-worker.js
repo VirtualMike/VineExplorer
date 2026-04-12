@@ -14,9 +14,22 @@ import {
 
 // ── Message handler ───────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  let responded = false;
+
   handleMessage(msg, sender)
-    .then(sendResponse)
-    .catch(err => sendResponse({ error: err.message }));
+    .then((response) => {
+      if (!responded) {
+        responded = true;
+        sendResponse(response);
+      }
+    })
+    .catch((err) => {
+      if (!responded) {
+        responded = true;
+        sendResponse({ error: err?.message || String(err) });
+      }
+    });
+
   return true; // keep channel open for async response
 });
 
@@ -119,16 +132,41 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 async function runAvailabilityCheck() {
-  // Only meaningful when user has a Vine tab open.
-  // This alarm is a placeholder — actual availability is checked
-  // passively by the content script as the user browses.
   const tabs = await chrome.tabs.query({ url: 'https://www.amazon.com/vine/*' });
   if (tabs.length === 0) return;
 
-  // Ping the content script in the active Vine tab to re-scrape visible products.
-  for (const tab of tabs) {
-    chrome.tabs.sendMessage(tab.id, { type: 'REQUEST_RESCRAPE' }).catch(() => {
-      // Content script may not be ready; ignore.
-    });
+  const tab = tabs[0]; // Use the first Vine tab
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_PAGINATION_INFO' });
+    const { current, total } = response;
+
+    if (current >= total) return; // Already on last page
+
+    // Scan remaining pages
+    for (let page = current + 1; page <= total; page++) {
+      const url = new URL(tab.url);
+      url.searchParams.set('page', page);
+      await chrome.tabs.update(tab.id, { url: url.toString() });
+
+      // Wait for page load
+      await new Promise((resolve) => {
+        const listener = (tabId, changeInfo) => {
+          if (tabId === tab.id && changeInfo.status === 'complete') {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+          }
+        };
+        chrome.tabs.onUpdated.addListener(listener);
+      });
+
+      // Rescrape the new page
+      chrome.tabs.sendMessage(tab.id, { type: 'REQUEST_RESCRAPE' }).catch(() => {});
+
+      // Delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+  } catch (err) {
+    console.error('Error during availability check:', err);
   }
 }
