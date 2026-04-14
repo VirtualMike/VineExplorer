@@ -194,48 +194,113 @@
   }
 
   // ── Auto-fetch queue ───────────────────────────────────────────────────────
-  // ETV is fetched by calling the Vine recommendations API directly, matching
-  // the approach used by AmazonVineExplorer (vine_fetch.js), which intercepts
-  // the same endpoint. This avoids opening/closing the Details modal entirely.
+  // ETV is fetched by programmatically opening the Details modal and reading
+  // the rendered DOM — the same path the user takes manually. This handles
+  // both simple products (ETV visible immediately) and products with options
+  // (requires selecting a variation before ETV appears).
 
   function enqueueForFetch(tile, asin) {
-    const input = tile.querySelector('input[data-recommendation-id]');
-    const recommendationId = input?.getAttribute('data-recommendation-id');
-    if (recommendationId) fetchQueue.push({ tile, asin, recommendationId });
+    if (tile.querySelector('input[data-recommendation-id]')) {
+      fetchQueue.push({ tile, asin });
+    }
   }
 
-  async function fetchEtvFromApi(recommendationId) {
-    try {
-      const url = `/vine/api/recommendations?recommendationId=${encodeURIComponent(recommendationId)}`;
-      const res = await fetch(url, { credentials: 'include' });
-      if (!res.ok) {
-        console.warn('[VineExplorer] API', res.status, 'for', recommendationId);
-        return { etv: null };
-      }
-      const json = await res.json();
-      const result = json?.result;
-      if (!result) return { etv: null };
-
-      if (result.taxValue !== undefined) {
-        return { etv: result.taxValue, hasOptions: false };
-      }
-
-      // Parent product with variations — try to fetch the first child's ETV
-      if (result.variations?.length > 0) {
-        const first = result.variations[0];
-        if (first.recommendationId) {
-          await sleep(randomBetween(1500, 4000));
-          const child = await fetchEtvFromApi(first.recommendationId);
-          return { ...child, hasOptions: true };
-        }
-        return { etv: null, hasOptions: true };
-      }
-
-      return { etv: null };
-    } catch (e) {
-      console.error('[VineExplorer] ETV fetch failed:', e);
+  async function fetchEtvViaModal(tile, asin) {
+    const modal = document.getElementById('vvp-product-details-modal--main');
+    if (!modal) {
+      console.warn('[VineExplorer] Detail modal element not found for', asin);
       return { etv: null };
     }
+
+    const detailsInput = tile.querySelector('input[data-recommendation-id]');
+    if (!detailsInput) {
+      console.warn('[VineExplorer] No Details button found for', asin);
+      return { etv: null };
+    }
+
+    return new Promise((resolve) => {
+      let settled    = false;
+      let optHandled = false;
+
+      const timer = setTimeout(() => done({ etv: null }), 20_000);
+
+      function done(result) {
+        if (settled) return;
+        settled = true;
+        obs.disconnect();
+        clearTimeout(timer);
+        // Close the modal — try close button first, fall back to Escape key
+        const closeBtn = modal.querySelector(
+          '[data-action="a-modal-close"] input, ' +
+          '.a-modal-close input, ' +
+          'button.a-modal-close, ' +
+          'span.a-icon-close, ' +
+          '.a-icon-close'
+        );
+        if (closeBtn) {
+          closeBtn.click();
+        } else {
+          document.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+          );
+        }
+        resolve(result);
+      }
+
+      function readEtv() {
+        const etvEl = modal.querySelector('#vvp-product-details-modal--tax-value-string');
+        if (!etvEl) return null;
+        const m = etvEl.textContent.match(/\$?([\d,]+\.?\d*)/);
+        return m ? parseFloat(m[1].replace(/,/g, '')) : null;
+      }
+
+      function handleModalContent() {
+        // Ignore while modal is hidden
+        if (modal.style.display === 'none' || modal.style.display === '') return;
+
+        const etv = readEtv();
+        if (etv !== null && etv >= 0) {
+          const hasOptions = !!modal.querySelector(
+            '#vvp-product-details-modal--variations-container select'
+          );
+          done({ etv, hasOptions });
+          return;
+        }
+
+        // ETV not visible yet — select the first available option to trigger
+        // Amazon's inline update, which will then populate the ETV element.
+        if (!optHandled) {
+          const select = modal.querySelector(
+            '#vvp-product-details-modal--variations-container select'
+          );
+          if (select && select.options.length > 1) {
+            optHandled = true;
+            const firstReal = Array.from(select.options).find(
+              o => o.index > 0 && o.value && o.value !== ''
+            );
+            if (firstReal) {
+              select.value = firstReal.value;
+              select.dispatchEvent(new Event('change', { bubbles: true }));
+              // DOM will update asynchronously; the MutationObserver will
+              // fire handleModalContent again once ETV appears.
+            }
+          }
+        }
+      }
+
+      // Watch for the modal becoming visible AND for any content change
+      // inside it (e.g., ETV appearing after option selection).
+      const obs = new MutationObserver(() => handleModalContent());
+      obs.observe(modal, {
+        attributes:      true,
+        attributeFilter: ['style'],
+        subtree:         true,
+        childList:       true,
+      });
+
+      // Open the Details panel
+      detailsInput.click();
+    });
   }
 
   async function runFetchQueue() {
@@ -247,16 +312,17 @@
     }
 
     isFetching = true;
-    console.log(`[VineExplorer] Fetching ETVs via API: ${fetchQueue.length} queued`);
+    console.log(`[VineExplorer] Auto-fetching ETVs via modal: ${fetchQueue.length} queued`);
 
     while (fetchQueue.length > 0) {
-      const { tile, asin, recommendationId } = fetchQueue.shift();
+      const { tile, asin } = fetchQueue.shift();
       setStatus(`Fetching ETV… ${fetchQueue.length + 1} remaining`);
 
-      const { etv, hasOptions } = await fetchEtvFromApi(recommendationId);
+      const { etv, hasOptions } = await fetchEtvViaModal(tile, asin);
+      console.log(`[VineExplorer] Modal fetch → ${asin}: ETV=${etv}  hasOptions=${hasOptions}`);
 
       const update = { asin, available: true };
-      if (etv !== null)         update.etv        = etv;
+      if (etv        !== null)      update.etv        = etv;
       if (hasOptions !== undefined) update.hasOptions = hasOptions;
 
       const res = await send({ type: 'SAVE_PRODUCT', product: update });

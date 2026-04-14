@@ -73,3 +73,32 @@ The content script uses `MutationObserver` to detect newly loaded tiles as the u
 
 ### Styling Conventions
 All extension-injected CSS classes use the `ve-` prefix (e.g., `ve-badge`, `ve-keyword-match`) to avoid collisions with Amazon's styles.
+
+### Webpage Enhancements
+html code is injected into the displayed page that offers many user experience enhancements.
+- Favorites are highlighted
+- A set of buttons added to the floating control at the bottom of the page
+  - A favorites button with a badge noting the number of favorites. The favorites button will display all of the tiles that have been favorited.
+  - A new Items button with a badge noting the number of items that have not been marked as seen by the user. When clicking on the New Items button, Only tiles that have not been marked as seen will be displayed. 500 tiles per page.
+  - A Back to Top button will get the user back to the top
+  - A Mark everything on this page as seen button will tag items as seen
+- Pagination buttons are added to the top of the page
+
+### Compact View page
+A page is offered for a compact view of the items. The page will have image, title, vendor, Description as a "click for more" shortened item, an icon noting if an item has multiple options, the ETV, last seen date and time, availability.
+
+The header on this page allows for sorting by a column, a search bar, ETV filtering, keyword filtering, and the ability to show items that have been removed.
+
+### Keywords
+The configuration page allows you to add keywords that will be taagged as favorites. When a keyword is removed, the tag for all items in the database with that tag is removed.
+
+### Scanning
+Scanning should be done in the background and not affect the user. Scanning should only be done on one active tab even if multiple vine tabs are open. Scanning should be done by category with Automotive being scanned last.
+
+### Metrics
+Scanning should keep track of when items were seen and a metrics page should be able to show a heat map of new items by hour and by day for a 90 day period.
+
+Additional metrics. Number of new products by category. Number of items over $100 ETV. Heat map of high ETV value product drops.
+
+### Alerts
+When new products match keywords. A window Toast notification should be provided with a link to the amazon vine tile.
