@@ -14,8 +14,9 @@ function openDB() {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
     req.onupgradeneeded = (event) => {
-      const db  = event.target.result;
-      const { oldVersion, transaction } = event;
+      const db          = event.target.result;
+      const oldVersion  = event.oldVersion;
+      const transaction = event.target.transaction;
 
       if (oldVersion < 1) {
         const ps = db.createObjectStore(STORES.PRODUCTS, { keyPath: 'asin' });
