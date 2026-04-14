@@ -85,7 +85,7 @@
     if (saved) {
       enhanceTile(tile, saved);
       // Queue for auto-fetch if ETV not yet known
-      if (saved.etv === null) enqueueForFetch(tile);
+      if (saved.etv === null) enqueueForFetch(tile, asin);
     }
   }
 
@@ -194,9 +194,47 @@
   }
 
   // ── Auto-fetch queue ───────────────────────────────────────────────────────
-  function enqueueForFetch(tile) {
-    const btn = tile.querySelector('input.a-button-input[type="submit"], input.a-button-input');
-    if (btn) fetchQueue.push({ tile, btn });
+  // ETV is fetched by calling the Vine recommendations API directly, matching
+  // the approach used by AmazonVineExplorer (vine_fetch.js), which intercepts
+  // the same endpoint. This avoids opening/closing the Details modal entirely.
+
+  function enqueueForFetch(tile, asin) {
+    const input = tile.querySelector('input[data-recommendation-id]');
+    const recommendationId = input?.getAttribute('data-recommendation-id');
+    if (recommendationId) fetchQueue.push({ tile, asin, recommendationId });
+  }
+
+  async function fetchEtvFromApi(recommendationId) {
+    try {
+      const url = `/vine/api/recommendations?recommendationId=${encodeURIComponent(recommendationId)}`;
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) {
+        console.warn('[VineExplorer] API', res.status, 'for', recommendationId);
+        return { etv: null };
+      }
+      const json = await res.json();
+      const result = json?.result;
+      if (!result) return { etv: null };
+
+      if (result.taxValue !== undefined) {
+        return { etv: result.taxValue, hasOptions: false };
+      }
+
+      // Parent product with variations — try to fetch the first child's ETV
+      if (result.variations?.length > 0) {
+        const first = result.variations[0];
+        if (first.recommendationId) {
+          const child = await fetchEtvFromApi(first.recommendationId);
+          return { ...child, hasOptions: true };
+        }
+        return { etv: null, hasOptions: true };
+      }
+
+      return { etv: null };
+    } catch (e) {
+      console.error('[VineExplorer] ETV fetch failed:', e);
+      return { etv: null };
+    }
   }
 
   async function runFetchQueue() {
@@ -208,69 +246,32 @@
     }
 
     isFetching = true;
-    console.log(`[VineExplorer] Auto-fetch: ${fetchQueue.length} tiles queued`);
+    console.log(`[VineExplorer] Fetching ETVs via API: ${fetchQueue.length} queued`);
 
     while (fetchQueue.length > 0) {
-      const { tile, btn } = fetchQueue.shift();
-      setStatus(`Auto-fetching ETV… ${fetchQueue.length + 1} remaining`);
+      const { tile, asin, recommendationId } = fetchQueue.shift();
+      setStatus(`Fetching ETV… ${fetchQueue.length + 1} remaining`);
 
-      tile.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      await sleep(randomBetween(500, 900));
+      const { etv, hasOptions } = await fetchEtvFromApi(recommendationId);
 
-      btn.click();
-      await waitForEtv();
-      await closeModal();
+      const update = { asin, available: true };
+      if (etv !== null)         update.etv        = etv;
+      if (hasOptions !== undefined) update.hasOptions = hasOptions;
 
-      await sleep(randomBetween(2000, 4000));
+      const res = await send({ type: 'SAVE_PRODUCT', product: update });
+      if (res?.product) {
+        processedAsins.delete(asin);
+        enhanceTile(tile, res.product);
+        processedAsins.add(asin);
+      }
+
+      await sleep(randomBetween(500, 1500));
     }
 
     isFetching = false;
     await updateStatusCount();
-    await sleep(randomBetween(2000, 3000));
+    await sleep(randomBetween(1000, 2000));
     await goToNextPage();
-  }
-
-  async function waitForEtv(maxWait = 8000) {
-    const interval = 200;
-    let waited = 0;
-    while (waited < maxWait) {
-      const modal   = document.getElementById('vvp-product-details-modal--main');
-      const spinner = document.getElementById('vvp-product-details-modal--tax-spinner');
-      const etvEl   = document.getElementById('vvp-product-details-modal--tax-value-string');
-
-      const modalOpen   = modal && modal.style.display !== 'none' && modal.style.display !== '';
-      const spinnerDone = !spinner || spinner.style.display === 'none';
-      const etvReady    = etvEl && etvEl.textContent.trim().length > 0;
-
-      if (modalOpen && spinnerDone && etvReady) return;
-
-      await sleep(interval);
-      waited += interval;
-    }
-    console.warn('[VineExplorer] waitForEtv timed out');
-  }
-
-  async function closeModal() {
-    const modal = document.getElementById('vvp-product-details-modal--main');
-    if (!modal || modal.style.display === 'none' || modal.style.display === '') return;
-
-    // 1. Dedicated close button
-    const closeBtn = document.querySelector(
-      '#vvp-product-details-modal .a-icon-close, ' +
-      '[data-action="a-modal-close"], ' +
-      '.vvp-modal-close, ' +
-      'button[aria-label*="close" i], button[title*="close" i]'
-    );
-    if (closeBtn) { closeBtn.click(); await sleep(400); return; }
-
-    // 2. Click overlay (parent of modal content)
-    if (modal.parentElement) { modal.parentElement.click(); await sleep(400); }
-
-    // 3. Escape key fallback
-    if (modal.style.display !== 'none' && modal.style.display !== '') {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-      await sleep(400);
-    }
   }
 
   async function goToNextPage() {

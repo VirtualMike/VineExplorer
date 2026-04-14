@@ -8,6 +8,11 @@ html, body {
   color: #111;
 }
 
+:root {
+  --compact-header-height: 0px;
+  --compact-toolbar-height: 0px;
+}
+
 /* ── Header ──────────────────────────────────────────────────────────────── */
 header {
   position: sticky;
@@ -51,7 +56,7 @@ header h1 { font-size: 17px; font-weight: 700; }
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .toolbar {
   position: sticky;
-  top: 44px;
+  top: var(--compact-header-height);
   z-index: 90;
   background: #fff;
   border-bottom: 1px solid #d5d9d9;
@@ -114,7 +119,7 @@ table {
 
 thead th {
   position: sticky;
-  top: 92px; /* header + toolbar height */
+  top: 0; /*--- calc(var(--compact-header-height) + var(--compact-toolbar-height)); ---*/
   background: #232f3e;
   color: #fff;
   padding: 10px 12px;
@@ -149,7 +154,7 @@ td {
 /* Column widths */
 .col-img   { width: 60px; text-align: center; }
 .col-title { min-width: 180px; max-width: 260px; }
-.col-vendor { min-width: 100px; max-width: 140px; font-size: 12px; color: #555; }
+.col-vendor { min-width: 50px; max-width: 70px; font-size: 12px; color: #555; }
 .col-desc  { min-width: 200px; max-width: 340px; font-size: 12px; color: #444; }
 .col-opts  { width: 60px; text-align: center; font-size: 16px; color: #146eb4; }
 .col-etv   { width: 80px; font-weight: 700; color: #c45500; white-space: nowrap; }
@@ -176,7 +181,7 @@ td {
 }
 
 .img-wrap:hover img {
-  transform: scale(3.5);
+  transform: scale(4.5) translateX(20px);
   box-shadow: 0 8px 24px rgba(0,0,0,.35);
   z-index: 999;
 }

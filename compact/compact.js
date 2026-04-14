@@ -87,11 +87,16 @@ function buildRow(p) {
   if (p.imageUrl) {
     const wrap = document.createElement('div');
     wrap.className = 'img-wrap';
+    const link = document.createElement('a');
+    link.href = getVineSearchUrl(p.asin);
+    link.target = '_blank';
+    link.rel = 'noopener';
     const img = document.createElement('img');
     img.src = p.imageUrl;
     img.alt = '';
     img.loading = 'lazy';
-    wrap.appendChild(img);
+    link.appendChild(img);
+    wrap.appendChild(link);
     // Zoom on hover — handled via CSS
     imgCell.appendChild(wrap);
   }
@@ -187,6 +192,18 @@ function htmlToPlainText(html) {
   return div.textContent || div.innerText || '';
 }
 
+function getVineSearchUrl(asin) {
+  return `https://vine.amazon.com/search?field-keywords=${encodeURIComponent(asin)}`;
+}
+
+function updateStickyOffsets() {
+  const header = document.querySelector('header');
+  const toolbar = document.querySelector('.toolbar');
+  if (!header || !toolbar) return;
+  document.documentElement.style.setProperty('--compact-header-height', `${header.offsetHeight}px`);
+  document.documentElement.style.setProperty('--compact-toolbar-height', `${toolbar.offsetHeight}px`);
+}
+
 // ── Description popover ───────────────────────────────────────────────────────
 function showDescPopover(title, html) {
   const popover = document.getElementById('desc-popover');
@@ -209,6 +226,10 @@ function escapeHtml(str) {
 
 // ── Events ────────────────────────────────────────────────────────────────────
 function bindEvents() {
+  // Sticky offset sync
+  window.addEventListener('resize', updateStickyOffsets);
+  updateStickyOffsets();
+
   // Debounced search
   document.getElementById('search-input').addEventListener('input', () => {
     clearTimeout(debounceTimer);
