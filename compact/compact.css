@@ -102,6 +102,7 @@ header h1 { font-size: 17px; font-weight: 700; }
   align-items: center;
   gap: 5px;
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -129,6 +130,7 @@ thead th {
   text-transform: uppercase;
   letter-spacing: .4px;
   white-space: nowrap;
+  -webkit-user-select: none;
   user-select: none;
 }
 
