@@ -10,10 +10,6 @@
     "claudeCode.preferredLocation": "panel",
     "claudeCode.environmentVariables": [
         {
-        "name": "ANTHROPIC_API_KEY",
-        "value": "sk-XUbiFpms5HvpyLb22kLKtQ"
-        },
-        {
         "name": "ANTHROPIC_DEFAULT_OPUS_MODEL",
         "value": "claude-4-6-opus-aws-comm-il2"
         },
