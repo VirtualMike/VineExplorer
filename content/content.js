@@ -23,7 +23,7 @@
     listenForRescrape();
     updateStatusCount();
     // Start auto-fetch after page settles
-    setTimeout(runFetchQueue, 1500);
+    setTimeout(runFetchQueue, 3000);
   }
 
   // ── Keywords ───────────────────────────────────────────────────────────────
@@ -224,6 +224,7 @@
       if (result.variations?.length > 0) {
         const first = result.variations[0];
         if (first.recommendationId) {
+          await sleep(randomBetween(1500, 4000));
           const child = await fetchEtvFromApi(first.recommendationId);
           return { ...child, hasOptions: true };
         }
@@ -265,12 +266,12 @@
         processedAsins.add(asin);
       }
 
-      await sleep(randomBetween(500, 1500));
+      await sleep(randomBetween(3000, 8000));
     }
 
     isFetching = false;
     await updateStatusCount();
-    await sleep(randomBetween(1000, 2000));
+    await sleep(randomBetween(8000, 15000));
     await goToNextPage();
   }
 
