@@ -84,6 +84,14 @@
   box-shadow: 0 1px 4px rgba(0,0,0,.3);
 }
 
+.ve-limited-badge {
+  bottom: 6px;
+  left: 6px;
+  background: #c7511f;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.4);
+}
+
 /* ── Keyword tag ─────────────────────────────────────────────────────────── */
 .ve-keyword-tag {
   background: rgba(255, 153, 0, 0.15);

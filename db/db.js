@@ -2,7 +2,7 @@
 // Runs at the extension's origin (service worker, popup, options, compact view)
 
 const DB_NAME = 'VineExplorer';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const STORES = {
   PRODUCTS: 'products',
@@ -14,19 +14,26 @@ function openDB() {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
     req.onupgradeneeded = (event) => {
-      const db = event.target.result;
+      const db  = event.target.result;
+      const { oldVersion, transaction } = event;
 
-      if (!db.objectStoreNames.contains(STORES.PRODUCTS)) {
+      if (oldVersion < 1) {
         const ps = db.createObjectStore(STORES.PRODUCTS, { keyPath: 'asin' });
-        ps.createIndex('available', 'available', { unique: false });
+        ps.createIndex('available',     'available',     { unique: false });
         ps.createIndex('dateFirstSeen', 'dateFirstSeen', { unique: false });
-        ps.createIndex('etv', 'etv', { unique: false });
-        ps.createIndex('removedDate', 'removedDate', { unique: false });
-      }
+        ps.createIndex('etv',           'etv',           { unique: false });
+        ps.createIndex('removedDate',   'removedDate',   { unique: false });
 
-      if (!db.objectStoreNames.contains(STORES.KEYWORDS)) {
         const ks = db.createObjectStore(STORES.KEYWORDS, { keyPath: 'id', autoIncrement: true });
         ks.createIndex('keyword', 'keyword', { unique: true });
+      }
+
+      if (oldVersion < 2) {
+        // Add productSiteLaunchDate index (fresh installs get it above; upgrades add it here)
+        const ps = transaction.objectStore(STORES.PRODUCTS);
+        if (!ps.indexNames.contains('productSiteLaunchDate')) {
+          ps.createIndex('productSiteLaunchDate', 'productSiteLaunchDate', { unique: false });
+        }
       }
     };
 
@@ -63,6 +70,8 @@ export async function upsertProduct(product) {
         removedDate:   product.available === false
                          ? (existing?.removedDate ?? now)
                          : null,
+        productSiteLaunchDate: product.productSiteLaunchDate ?? existing?.productSiteLaunchDate ?? null,
+        limitedQuantity:       product.limitedQuantity      ?? existing?.limitedQuantity      ?? false,
         keywordsMatched: product.keywordsMatched ?? existing?.keywordsMatched ?? []
       };
 
