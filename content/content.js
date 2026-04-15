@@ -229,10 +229,12 @@
       const result = json?.result;
       console.log('[VineExplorer] API response for item detail:', result);
       console.log('[VineExplorer] DetailURL:', detailUrl);
-      //if (!result) return { etv: null };
-      console.log('[VineExplorer] API result for item detail was not null:', result);
-      console.log('[VineExplorer] Checking taxValue for:', asin, '→', result.taxValue);
-      if (result.taxValue !== null && result.taxValue !== undefined) {
+      if (!result) {
+        // ITEM_NOT_IN_ENROLLMENT means the recommendationId is a parent bundle —
+        // fall through to the variations endpoint to find a valid child item.
+        if (json?.error?.exceptionType !== 'ITEM_NOT_IN_ENROLLMENT') return { etv: null };
+        console.log('[VineExplorer] ITEM_NOT_IN_ENROLLMENT for', asin, '— trying variations');
+      } else if (result.taxValue !== null && result.taxValue !== undefined) {
         return {
           etv:                   result.taxValue,
           hasOptions:            false,
@@ -241,7 +243,7 @@
         };
       }
 
-      // taxValue absent on parent products — fetch the variations list and
+      // taxValue absent OR ITEM_NOT_IN_ENROLLMENT — fetch the variations list and
       // recurse with the first child's recommendationId + asin.
       console.log('[VineExplorer] Fetching variations for:', asin);
       const varUrl = `/vine/api/recommendations/${encodeURIComponent(recommendationId)}`;
