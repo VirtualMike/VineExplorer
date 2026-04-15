@@ -235,11 +235,20 @@
         if (json?.error?.exceptionType !== 'ITEM_NOT_IN_ENROLLMENT') return { etv: null };
         console.log('[VineExplorer] ITEM_NOT_IN_ENROLLMENT for', asin, '— trying variations');
       } else if (result.taxValue !== null && result.taxValue !== undefined) {
+        const bullets = result.featureBullets;
         return {
           etv:                   result.taxValue,
           hasOptions:            false,
           productSiteLaunchDate: result.productSiteLaunchDate ?? null,
           limitedQuantity:       result.limitedQuantity === true,
+          title:                 result.productTitle || null,
+          description:           bullets?.length
+                                   ? '<ul>' + bullets.map(b =>
+                                       `<li>${b.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</li>`
+                                     ).join('') + '</ul>'
+                                   : null,
+          vendor:                result.byLineContributors?.join(', ') || null,
+          imageUrl:              result.imageUrl || null,
         };
       }
 
@@ -286,7 +295,8 @@
       const { tile, asin, recommendationId } = fetchQueue.shift();
       setStatus(`Fetching ETV… ${fetchQueue.length + 1} remaining`);
 
-      const { etv, hasOptions, productSiteLaunchDate, limitedQuantity } = await fetchEtvFromApi(recommendationId, asin);
+      const { etv, hasOptions, productSiteLaunchDate, limitedQuantity,
+              title, description, vendor, imageUrl } = await fetchEtvFromApi(recommendationId, asin);
       console.log(`[VineExplorer] API fetch → ${asin}: ETV=${etv}  hasOptions=${hasOptions}  limited=${limitedQuantity}  launchDate=${productSiteLaunchDate}`);
 
       const update = { asin, available: true };
@@ -294,6 +304,10 @@
       if (hasOptions            !== undefined) update.hasOptions            = hasOptions;
       if (productSiteLaunchDate !== null)      update.productSiteLaunchDate = productSiteLaunchDate;
       if (limitedQuantity       === true)      update.limitedQuantity       = true;
+      if (title)                               update.title                 = title;
+      if (description)                         update.description           = description;
+      if (vendor)                              update.vendor                = vendor;
+      if (imageUrl)                            update.imageUrl              = imageUrl;
 
       const res = await send({ type: 'SAVE_PRODUCT', product: update });
       if (res?.product) {
