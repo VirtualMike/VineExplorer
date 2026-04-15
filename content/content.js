@@ -316,7 +316,8 @@
         processedAsins.add(asin);
       }
 
-      await sleep(randomBetween(3000, 8000));
+      await sleep(randomBetween(3000, 8000)); // Random delay between API calls to mimic human behavior and avoid rate limits.
+      //  Delay of 3000 - 8000 ms is based on typical user interaction times and allows for some variability to reduce the chance of triggering anti-bot measures.
     }
 
     isFetching = false;
