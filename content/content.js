@@ -214,6 +214,7 @@
   }
 
   async function fetchEtvFromApi(recommendationId, asin) {
+    console.log(`[VineExplorer] Fetching ETV from API for ASIN: ${asin}  RecID: ${recommendationId}`);
     try {
       // Try fetching the specific item detail directly (works for simple products
       // and for individual variation items).
@@ -226,8 +227,11 @@
       }
       const json = await res.json();
       const result = json?.result;
-      if (!result) return { etv: null };
-
+      console.log('[VineExplorer] API response for item detail:', result);
+      console.log('[VineExplorer] DetailURL:', detailUrl);
+      //if (!result) return { etv: null };
+      console.log('[VineExplorer] API result for item detail was not null:', result);
+      console.log('[VineExplorer] Checking taxValue for:', asin, '→', result.taxValue);
       if (result.taxValue !== null && result.taxValue !== undefined) {
         return {
           etv:                   result.taxValue,
@@ -239,6 +243,7 @@
 
       // taxValue absent on parent products — fetch the variations list and
       // recurse with the first child's recommendationId + asin.
+      console.log('[VineExplorer] Fetching variations for:', asin);
       const varUrl = `/vine/api/recommendations/${encodeURIComponent(recommendationId)}`;
       const varRes = await fetch(varUrl, { credentials: 'include' });
       if (!varRes.ok) return { etv: null, hasOptions: false };
@@ -246,11 +251,17 @@
       const varJson  = await varRes.json();
       const firstVar = varJson?.result?.variations?.[0];
       if (firstVar?.recommendationId && firstVar?.asin) {
+        console.log('[VineExplorer] Fetching first variation for:', asin, '→', firstVar.asin);
         await sleep(randomBetween(1500, 4000));
+        // Recursive call to fetch the first variation's details, which should include ETV.
         const child = await fetchEtvFromApi(firstVar.recommendationId, firstVar.asin);
         return { ...child, hasOptions: true };
       }
 
+      // No taxValue and no variations with their own recommendationId → treat as no ETV but has options.
+      console.log('[VineExplorer] No ETV and no child variations for:', asin);
+      console.log('[VineExplorer] Response was:', varJson);
+      console.log('[VineExplorer] Response Value was:', result);
       return { etv: null, hasOptions: !!varJson?.result?.variations?.length };
     } catch (e) {
       console.error('[VineExplorer] ETV fetch error:', e);
