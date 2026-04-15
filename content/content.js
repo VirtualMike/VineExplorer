@@ -227,8 +227,8 @@
       }
       const json = await res.json();
       const result = json?.result;
-      console.log('[VineExplorer] API response for item detail:', result);
-      console.log('[VineExplorer] DetailURL:', detailUrl);
+      console.debug('[VineExplorer] API response for item detail:', result);
+      console.debug('[VineExplorer] DetailURL:', detailUrl);
       if (!result) {
         // ITEM_NOT_IN_ENROLLMENT means the recommendationId is a parent bundle —
         // fall through to the variations endpoint to find a valid child item.
@@ -252,18 +252,18 @@
 
       const varJson  = await varRes.json();
       const firstVar = varJson?.result?.variations?.[0];
-      if (firstVar?.recommendationId && firstVar?.asin) {
+      if (varJson?.result?.recommendationId && firstVar?.asin) {
         console.log('[VineExplorer] Fetching first variation for:', asin, '→', firstVar.asin);
         await sleep(randomBetween(1500, 4000));
         // Recursive call to fetch the first variation's details, which should include ETV.
-        const child = await fetchEtvFromApi(firstVar.recommendationId, firstVar.asin);
+        const child = await fetchEtvFromApi(varJson.result.recommendationId, firstVar.asin);
         return { ...child, hasOptions: true };
       }
 
       // No taxValue and no variations with their own recommendationId → treat as no ETV but has options.
-      console.log('[VineExplorer] No ETV and no child variations for:', asin);
-      console.log('[VineExplorer] Response was:', varJson);
-      console.log('[VineExplorer] Response Value was:', result);
+      console.debug('[VineExplorer] No ETV and no child variations for:', asin);
+      console.debug('[VineExplorer] Response was:', varJson);
+      console.debug('[VineExplorer] Response Value was:', result);
       return { etv: null, hasOptions: !!varJson?.result?.variations?.length };
     } catch (e) {
       console.error('[VineExplorer] ETV fetch error:', e);
