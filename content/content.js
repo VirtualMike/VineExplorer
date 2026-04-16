@@ -14,15 +14,17 @@
 
   // ── Init ───────────────────────────────────────────────────────────────────
   async function init() {
-    console.log('[VineExplorer] Initializing…');
+    const page = new URLSearchParams(window.location.search).get('page') || '1';
+    console.log(`[VineExplorer] ═══ INIT page ${page} ═══ ${window.location.href}`);
     await loadKeywords();
     injectStatusBar();
     await processAllTiles();   // wait so fetchQueue is fully populated
+    console.log(`[VineExplorer] Tiles processed. ${fetchQueue.length} queued for ETV fetch, ${processedAsins.size} ASINs seen.`);
     observePageChanges();
-    watchDetailPanel();
     listenForRescrape();
     updateStatusCount();
     // Start auto-fetch after page settles
+    console.log('[VineExplorer] Waiting 3s before starting ETV fetch queue…');
     setTimeout(runFetchQueue, 3000);
   }
 
@@ -75,17 +77,18 @@
     const product = extractProductFromTile(tile, asin);
     if (!product) return;
 
-    // Try to read ETV directly from tile markup (usually absent, but worth checking)
-    const etvFromTile = extractEtvFromTile(tile);
-    if (etvFromTile !== null) product.etv = etvFromTile;
-
     const res   = await send({ type: 'SAVE_PRODUCT', product });
     const saved = res?.product;
 
     if (saved) {
       enhanceTile(tile, saved);
-      // Queue for auto-fetch if ETV not yet known
-      if (saved.etv === null) enqueueForFetch(tile, asin);
+      if (saved.etv === null) {
+        enqueueForFetch(tile, asin);
+      } else {
+        console.log(`[VineExplorer] Tile ${asin}: already has ETV=$${saved.etv} — skipping fetch`);
+      }
+    } else {
+      console.warn(`[VineExplorer] Tile ${asin}: SAVE_PRODUCT returned no product`, res);
     }
   }
 
@@ -123,31 +126,6 @@
     };
   }
 
-  // Attempt to read ETV from tile markup (Vine normally doesn't expose this,
-  // but included as a future-proof fallback).
-  function extractEtvFromTile(tile) {
-    if (!tile) return null;
-
-    const selectors = [
-      '[data-etv]', '[data-tax-value]',
-      '.vvp-item-tax-value', '.vvp-item-tax-string',
-      '.vvp-item-price', '.vvp-item-price-string'
-    ];
-    for (const sel of selectors) {
-      const el = tile.querySelector(sel);
-      if (el?.textContent) {
-        const m = el.textContent.match(/\$?([\d,]+\.?\d*)/);
-        if (m) return parseFloat(m[1].replace(/,/g, ''));
-      }
-    }
-
-    // Text-scan fallback
-    const text = Array.from(tile.querySelectorAll('span, div, p, strong'))
-      .map(el => el.textContent.trim()).filter(Boolean).join(' ');
-    const m = text.match(/(?:ETV|Estimated Taxable Value|Tax Value)[:\s]*\$?([\d,]+\.?\d*)/i);
-    return m ? parseFloat(m[1].replace(/,/g, '')) : null;
-  }
-
   function enhanceTile(tile, product) {
     tile.querySelectorAll('.ve-badge, .ve-keyword-tag').forEach(el => el.remove());
     const container = tile.querySelector('.vvp-item-tile-content') || tile;
@@ -182,22 +160,6 @@
     }
 
     if (product.available === false) tile.classList.add('ve-unavailable');
-  }
-
-  // ── Find tile by ASIN ──────────────────────────────────────────────────────
-  function findTileByAsin(asin) {
-    let tile = document.querySelector(`.vvp-item-tile[data-asin="${asin}"]`);
-    if (tile) return tile;
-
-    const btn = document.querySelector(`input[data-asin="${asin}"]`);
-    if (btn) return btn.closest('.vvp-item-tile');
-
-    // Most reliable on Vine: find via product link href
-    const link = document.querySelector(`.vvp-item-tile a[href*="/dp/${asin}"]`);
-    if (link) return link.closest('.vvp-item-tile');
-
-    console.warn('[VineExplorer] Could not find tile for ASIN:', asin);
-    return null;
   }
 
   // ── Auto-fetch queue ───────────────────────────────────────────────────────
@@ -281,23 +243,31 @@
   }
 
   async function runFetchQueue() {
-    if (isFetching) return;
+    if (isFetching) {
+      console.log('[VineExplorer] runFetchQueue called but already fetching — skipping');
+      return;
+    }
 
     if (fetchQueue.length === 0) {
+      console.log('[VineExplorer] Fetch queue empty — proceeding to next page');
       await goToNextPage();
       return;
     }
 
     isFetching = true;
-    console.log(`[VineExplorer] Fetching ETVs via API: ${fetchQueue.length} queued`);
+    const total = fetchQueue.length;
+    console.log(`[VineExplorer] ─── ETV FETCH START ─── ${total} items queued`);
 
+    let fetched = 0;
     while (fetchQueue.length > 0) {
       const { tile, asin, recommendationId } = fetchQueue.shift();
+      fetched++;
       setStatus(`Fetching ETV… ${fetchQueue.length + 1} remaining`);
+      console.log(`[VineExplorer] [${fetched}/${total}] Fetching ${asin}…`);
 
       const { etv, hasOptions, productSiteLaunchDate, limitedQuantity,
               title, description, vendor, imageUrl } = await fetchEtvFromApi(recommendationId, asin);
-      console.log(`[VineExplorer] API fetch → ${asin}: ETV=${etv}  hasOptions=${hasOptions}  limited=${limitedQuantity}  launchDate=${productSiteLaunchDate}`);
+      console.log(`[VineExplorer] [${fetched}/${total}] ${asin}: ETV=${etv}  options=${hasOptions}  limited=${limitedQuantity}  vendor=${vendor ? vendor.slice(0,30) : '—'}  desc=${description ? 'yes' : 'no'}`);
 
       const update = { asin, available: true };
       if (etv                   !== null)      update.etv                   = etv;
@@ -314,6 +284,8 @@
         processedAsins.delete(asin);
         enhanceTile(tile, res.product);
         processedAsins.add(asin);
+      } else {
+        console.warn(`[VineExplorer] [${fetched}/${total}] SAVE_PRODUCT failed for ${asin}:`, res);
       }
 
       await sleep(randomBetween(3000, 8000));
@@ -321,97 +293,27 @@
 
     isFetching = false;
     await updateStatusCount();
-    await sleep(randomBetween(8000, 15000));
+    console.log(`[VineExplorer] ─── ETV FETCH DONE ─── ${fetched} items processed`);
+    console.log('[VineExplorer] Pausing 60s before next page (download logs now)…');
+    setStatus('Vine Explorer — page done, next page in ~60s…');
+    await sleep(60_000);
     await goToNextPage();
   }
 
   async function goToNextPage() {
+    const { current, total } = extractPagination();
     const nextBtn = document.querySelector(
       'ul.a-pagination .a-last:not(.a-disabled) a, ' +
       'ul.a-pagination li.a-last a'
     );
     if (!nextBtn) {
-      console.log('[VineExplorer] No next page — all done.');
+      console.log(`[VineExplorer] ═══ ALL DONE ═══ Finished on page ${current}/${total}`);
       setStatus('Vine Explorer — all pages fetched ✓');
       return;
     }
-    console.log('[VineExplorer] Navigating to next page…');
-    setStatus('Vine Explorer — loading next page…');
+    console.log(`[VineExplorer] ═══ NAVIGATE ═══ page ${current} → ${current + 1} of ${total}`);
+    setStatus(`Vine Explorer — loading page ${current + 1}/${total}…`);
     nextBtn.click();
-  }
-
-  // ── Detail panel scraping ──────────────────────────────────────────────────
-  // The modal already exists in DOM and is toggled via style.display.
-
-  function watchDetailPanel() {
-    function observeModal(modal) {
-      let lastDisplay = modal.style.display;
-      const obs = new MutationObserver(() => {
-        const cur = modal.style.display;
-        if (cur !== 'none' && cur !== '' && lastDisplay !== cur) {
-          setTimeout(() => extractFromDetailPanel(modal), 500);
-        }
-        lastDisplay = cur;
-      });
-      obs.observe(modal, { attributes: true, attributeFilter: ['style'] });
-    }
-
-    const modal = document.getElementById('vvp-product-details-modal--main');
-    if (modal) {
-      observeModal(modal);
-    } else {
-      const waiter = new MutationObserver(() => {
-        const m = document.getElementById('vvp-product-details-modal--main');
-        if (m) { waiter.disconnect(); observeModal(m); }
-      });
-      waiter.observe(document.body, { childList: true, subtree: true });
-    }
-  }
-
-  async function extractFromDetailPanel(panel) {
-    const titleLink = panel.querySelector('#vvp-product-details-modal--product-title');
-    if (!titleLink) { console.warn('[VineExplorer] No title link in panel'); return; }
-
-    const asinMatch = (titleLink.getAttribute('href') || '').match(/\/dp\/([A-Z0-9]{10})/);
-    if (!asinMatch) return;
-    const asin = asinMatch[1];
-
-    let etv = null;
-    const etvEl = panel.querySelector('#vvp-product-details-modal--tax-value-string');
-    if (etvEl) {
-      const m = etvEl.textContent.match(/\$?([\d,]+\.?\d*)/);
-      if (m) etv = parseFloat(m[1].replace(',', ''));
-    }
-
-    const descEl    = panel.querySelector('#vvp-product-details-modal--feature-bullets');
-    const vendorEl  = panel.querySelector('#vvp-product-details-modal--by-line');
-    const hasOptions = !!panel.querySelector('#vvp-product-details-modal--variations-container select');
-
-    const product = {
-      asin,
-      etv,
-      description: descEl?.outerHTML?.trim() || '',
-      vendor:      (vendorEl?.textContent || '').replace(/^by\s+/i, '').trim(),
-      hasOptions,
-      title:       titleLink.textContent?.trim() || undefined,
-      available:   true
-    };
-
-    console.log(`[VineExplorer] Scraped: ${asin}  ETV=${etv}  options=${hasOptions}`);
-
-    const res   = await send({ type: 'SAVE_PRODUCT', product });
-    const saved = res?.product;
-
-    if (saved) {
-      const tile = findTileByAsin(asin);
-      if (tile) {
-        processedAsins.delete(asin);
-        enhanceTile(tile, saved);
-        processedAsins.add(asin);
-      }
-    }
-
-    updateStatusCount();
   }
 
   // ── MutationObserver for infinite scroll ──────────────────────────────────
