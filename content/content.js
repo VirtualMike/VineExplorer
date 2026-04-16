@@ -1,31 +1,46 @@
 // content/content.js — Vine Explorer content script
-// Runs on: https://www.amazon.com/vine/vine-items*
+// Runs on: https://www.amazon.com/vine/*
 // NOTE: All DB access goes through chrome.runtime.sendMessage to the service worker.
 
 (function VineExplorer() {
   'use strict';
 
   // ── State ──────────────────────────────────────────────────────────────────
-  let keywords       = [];
-  let statusBar      = null;
-  let processedAsins = new Set();
-  let fetchQueue     = [];
-  let isFetching     = false;
+  let keywords             = [];
+  let statusBar            = null;
+  let processedAsins       = new Set();
+  let fetchQueue           = [];
+  let isFetching           = false;
+  let isBackgroundScanning = false;
+  let scanAborted          = false;
+
+  const isVineItemsPage = window.location.pathname.startsWith('/vine/vine-items');
 
   // ── Init ───────────────────────────────────────────────────────────────────
   async function init() {
-    const page = new URLSearchParams(window.location.search).get('page') || '1';
-    console.log(`[VineExplorer] ═══ INIT page ${page} ═══ ${window.location.href}`);
+    console.log(`[VineExplorer] ═══ INIT ═══ ${window.location.href}`);
     await loadKeywords();
     injectStatusBar();
-    await processAllTiles();   // wait so fetchQueue is fully populated
-    console.log(`[VineExplorer] Tiles processed. ${fetchQueue.length} queued for ETV fetch, ${processedAsins.size} ASINs seen.`);
-    observePageChanges();
-    listenForRescrape();
+    listenForMessages();
+
+    if (isVineItemsPage) {
+      await processAllTiles();
+      console.log(`[VineExplorer] Tiles processed. ${fetchQueue.length} queued for ETV fetch, ${processedAsins.size} ASINs seen.`);
+      observePageChanges();
+    }
+
     updateStatusCount();
-    // Start auto-fetch after page settles
-    console.log('[VineExplorer] Waiting 3s before starting ETV fetch queue…');
-    setTimeout(runFetchQueue, 3000);
+
+    // Abort background scan on page unload so state is cleanly saved
+    window.addEventListener('beforeunload', () => { scanAborted = true; });
+
+    // Start: process current page ETVs then background scan
+    setTimeout(async () => {
+      if (isVineItemsPage && fetchQueue.length > 0) {
+        await runFetchQueueForCurrentPage();
+      }
+      await backgroundScanLoop();
+    }, 3000);
   }
 
   // ── Keywords ───────────────────────────────────────────────────────────────
@@ -242,79 +257,218 @@
     }
   }
 
-  async function runFetchQueue() {
-    if (isFetching) {
-      console.log('[VineExplorer] runFetchQueue called but already fetching — skipping');
-      return;
-    }
-
-    if (fetchQueue.length === 0) {
-      console.log('[VineExplorer] Fetch queue empty — proceeding to next page');
-      await goToNextPage();
-      return;
-    }
+  // Fetches ETVs for tiles on the current visible page only (no navigation).
+  async function runFetchQueueForCurrentPage() {
+    if (isFetching || fetchQueue.length === 0) return;
 
     isFetching = true;
     const total = fetchQueue.length;
-    console.log(`[VineExplorer] ─── ETV FETCH START ─── ${total} items queued`);
+    console.log(`[VineExplorer] ─── ETV FETCH (current page) ─── ${total} items queued`);
 
     let fetched = 0;
     while (fetchQueue.length > 0) {
       const { tile, asin, recommendationId } = fetchQueue.shift();
       fetched++;
       setStatus(`Fetching ETV… ${fetchQueue.length + 1} remaining`);
-      console.log(`[VineExplorer] [${fetched}/${total}] Fetching ${asin}…`);
 
-      const { etv, hasOptions, productSiteLaunchDate, limitedQuantity,
-              title, description, vendor, imageUrl } = await fetchEtvFromApi(recommendationId, asin);
-      console.log(`[VineExplorer] [${fetched}/${total}] ${asin}: ETV=${etv}  options=${hasOptions}  limited=${limitedQuantity}  vendor=${vendor ? vendor.slice(0,30) : '—'}  desc=${description ? 'yes' : 'no'}`);
-
-      const update = { asin, available: true };
-      if (etv                   !== null)      update.etv                   = etv;
-      if (hasOptions            !== undefined) update.hasOptions            = hasOptions;
-      if (productSiteLaunchDate !== null)      update.productSiteLaunchDate = productSiteLaunchDate;
-      if (limitedQuantity       === true)      update.limitedQuantity       = true;
-      if (title)                               update.title                 = title;
-      if (description)                         update.description           = description;
-      if (vendor)                              update.vendor                = vendor;
-      if (imageUrl)                            update.imageUrl              = imageUrl;
+      const apiResult = await fetchEtvFromApi(recommendationId, asin);
+      const update = buildUpdateFromApi(asin, apiResult);
+      console.log(`[VineExplorer] [${fetched}/${total}] ${asin}: ETV=${apiResult.etv}  vendor=${apiResult.vendor ? apiResult.vendor.slice(0,30) : '—'}  desc=${apiResult.description ? 'yes' : 'no'}`);
 
       const res = await send({ type: 'SAVE_PRODUCT', product: update });
       if (res?.product) {
-        processedAsins.delete(asin);
         enhanceTile(tile, res.product);
-        processedAsins.add(asin);
-      } else {
-        console.warn(`[VineExplorer] [${fetched}/${total}] SAVE_PRODUCT failed for ${asin}:`, res);
       }
 
-      await sleep(randomBetween(3000, 8000)); // Random delay between API calls to mimic human behavior and avoid rate limits.
-      //  Delay of 3000 - 8000 ms is based on typical user interaction times and allows for some variability to reduce the chance of triggering anti-bot measures.
+      await sleep(randomBetween(3000, 8000));
     }
 
     isFetching = false;
     await updateStatusCount();
     console.log(`[VineExplorer] ─── ETV FETCH DONE ─── ${fetched} items processed`);
-    console.log('[VineExplorer] Pausing 60s before next page (download logs now)…');
-    setStatus('Vine Explorer — page done, next page in ~60s…');
-    await sleep(60_000);
-    await goToNextPage();
   }
 
-  async function goToNextPage() {
-    const { current, total } = extractPagination();
-    const nextBtn = document.querySelector(
-      'ul.a-pagination .a-last:not(.a-disabled) a, ' +
-      'ul.a-pagination li.a-last a'
-    );
-    if (!nextBtn) {
-      console.log(`[VineExplorer] ═══ ALL DONE ═══ Finished on page ${current}/${total}`);
-      setStatus('Vine Explorer — all pages fetched ✓');
+  // Builds a SAVE_PRODUCT update object from API result fields.
+  function buildUpdateFromApi(asin, apiResult) {
+    const { etv, hasOptions, productSiteLaunchDate, limitedQuantity,
+            title, description, vendor, imageUrl } = apiResult;
+    const update = { asin, available: true };
+    if (etv                   !== null      && etv !== undefined)        update.etv                   = etv;
+    if (hasOptions            !== undefined)                             update.hasOptions            = hasOptions;
+    if (productSiteLaunchDate !== null      && productSiteLaunchDate !== undefined) update.productSiteLaunchDate = productSiteLaunchDate;
+    if (limitedQuantity       === true)                                  update.limitedQuantity       = true;
+    if (title)                                                           update.title                 = title;
+    if (description)                                                     update.description           = description;
+    if (vendor)                                                          update.vendor                = vendor;
+    if (imageUrl)                                                        update.imageUrl              = imageUrl;
+    return update;
+  }
+
+  // ── Background scanning ────────────────────────────────────────────────────
+  // Fetches catalog pages via fetch() without navigating the tab, parses HTML
+  // with DOMParser, and calls the item detail API for ETV/description/vendor.
+
+  async function fetchPageHtml(queue, page) {
+    const url = `/vine/vine-items?queue=${encodeURIComponent(queue)}&page=${page}`;
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
+    // Detect session expiry (redirect to login page)
+    if (res.url.includes('/ap/signin')) throw new Error('Session expired');
+    return res.text();
+  }
+
+  function parsePageProducts(html) {
+    const doc   = new DOMParser().parseFromString(html, 'text/html');
+    const tiles = doc.querySelectorAll('.vvp-item-tile');
+    const products = [];
+
+    for (const tile of tiles) {
+      const asin = extractAsin(tile);
+      if (!asin) continue;
+
+      const input = tile.querySelector('input[data-recommendation-id]');
+      const recommendationId = input?.getAttribute('data-recommendation-id');
+      if (!recommendationId) continue;
+
+      const product = extractProductFromTile(tile, asin);
+      if (product) {
+        products.push({ ...product, recommendationId });
+      }
+    }
+
+    // Extract pagination from the parsed HTML
+    const pag = doc.querySelector('.a-pagination');
+    let totalPages = 1;
+    if (pag) {
+      pag.querySelectorAll('a').forEach(a => {
+        const m = (a.getAttribute('href') || '').match(/[?&]page=(\d+)/);
+        if (m) totalPages = Math.max(totalPages, +m[1]);
+      });
+    }
+
+    return { products, totalPages };
+  }
+
+  async function backgroundScanLoop() {
+    // Tab ID is resolved by the service worker from sender.tab.id
+    const claim = await send({ type: 'CLAIM_SCAN_LOCK' });
+    if (!claim.granted) {
+      console.log('[VineExplorer] Another tab is scanning — skipping background scan');
+      setStatus('Vine Explorer — another tab is scanning');
+      isBackgroundScanning = false;
       return;
     }
-    console.log(`[VineExplorer] ═══ NAVIGATE ═══ page ${current} → ${current + 1} of ${total}`);
-    setStatus(`Vine Explorer — loading page ${current + 1}/${total}…`);
-    nextBtn.click();
+
+    isBackgroundScanning = true;
+    scanAborted = false;
+    console.log('[VineExplorer] ═══ BACKGROUND SCAN START ═══');
+
+    const state = claim.state || {};
+    const queues         = ['potluck', 'encore', 'last_chance'];
+    const completedQueues = new Set(state.completedQueues || []);
+
+    try {
+      for (const queue of queues) {
+        if (scanAborted) break;
+        if (completedQueues.has(queue)) {
+          console.log(`[VineExplorer] Queue "${queue}" already completed — skipping`);
+          continue;
+        }
+
+        // Resume from saved page if we're continuing the same queue
+        let page = (state.currentQueue === queue && state.currentPage > 1)
+          ? state.currentPage
+          : 1;
+        let totalPages = state.totalPages || null;
+
+        console.log(`[VineExplorer] ─── Scanning queue: ${queue} (starting page ${page}) ───`);
+
+        while (!scanAborted) {
+          setStatus(`Scanning ${queue} page ${page}${totalPages ? '/' + totalPages : ''}…`);
+
+          let parsed;
+          try {
+            const html = await fetchPageHtml(queue, page);
+            parsed = parsePageProducts(html);
+          } catch (err) {
+            console.error(`[VineExplorer] Failed to fetch ${queue} page ${page}:`, err.message);
+            // Retry once after a delay
+            await sleep(10_000);
+            try {
+              const html = await fetchPageHtml(queue, page);
+              parsed = parsePageProducts(html);
+            } catch (retryErr) {
+              console.error(`[VineExplorer] Retry failed for ${queue} page ${page}:`, retryErr.message);
+              break; // Move on to next queue
+            }
+          }
+
+          totalPages = parsed.totalPages;
+          console.log(`[VineExplorer] ${queue} page ${page}/${totalPages}: ${parsed.products.length} products`);
+
+          // Save basic product data and collect items needing ETV
+          const needsEtv = [];
+          for (const p of parsed.products) {
+            const saveRes = await send({ type: 'SAVE_PRODUCT', product: { ...p, category: queue } });
+            if (saveRes?.product?.etv === null || saveRes?.product?.etv === undefined) {
+              needsEtv.push(p);
+            }
+          }
+
+          // Fetch ETVs for items that need them
+          if (needsEtv.length > 0) {
+            console.log(`[VineExplorer] Fetching ETVs for ${needsEtv.length} items on ${queue} page ${page}`);
+            let etvCount = 0;
+            for (const p of needsEtv) {
+              if (scanAborted) break;
+              etvCount++;
+              setStatus(`Scanning ${queue} p${page}/${totalPages} — ETV ${etvCount}/${needsEtv.length}`);
+
+              const apiResult = await fetchEtvFromApi(p.recommendationId, p.asin);
+              const update = buildUpdateFromApi(p.asin, apiResult);
+              update.category = queue;
+              await send({ type: 'SAVE_PRODUCT', product: update });
+
+              await sleep(randomBetween(3000, 8000));
+            }
+          }
+
+          // Checkpoint progress
+          await send({ type: 'UPDATE_SCAN_STATE', patch: {
+            currentQueue: queue,
+            currentPage:  page + 1,
+            totalPages
+          }});
+
+          if (page >= totalPages) break;
+          page++;
+          await sleep(randomBetween(3000, 8000));
+        }
+
+        // Mark queue complete
+        completedQueues.add(queue);
+        await send({ type: 'UPDATE_SCAN_STATE', patch: {
+          completedQueues: [...completedQueues]
+        }});
+        console.log(`[VineExplorer] ─── Queue "${queue}" done ───`);
+
+        if (!scanAborted && queue !== queues[queues.length - 1]) {
+          await sleep(randomBetween(10_000, 25_000));
+        }
+      }
+    } finally {
+      isBackgroundScanning = false;
+      await send({ type: 'RELEASE_SCAN_LOCK' });
+      if (!scanAborted) {
+        await send({ type: 'RESET_SCAN_STATE' });
+        await updateStatusCount();
+        const stats = await send({ type: 'GET_STATS' });
+        console.log(`[VineExplorer] ═══ BACKGROUND SCAN COMPLETE ═══ ${stats.total || 0} products cataloged`);
+        setStatus(`Vine Explorer — scan complete, ${stats.total || 0} products`);
+      } else {
+        console.log('[VineExplorer] ═══ BACKGROUND SCAN ABORTED (page unload) ═══');
+      }
+    }
   }
 
   // ── MutationObserver for infinite scroll ──────────────────────────────────
@@ -337,15 +491,20 @@
   }
 
   // ── Message listener ───────────────────────────────────────────────────────
-  function listenForRescrape() {
+  function listenForMessages() {
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-      if (msg.type === 'REQUEST_RESCRAPE') {
+      if (msg.type === 'REQUEST_RESCRAPE' && isVineItemsPage) {
         processedAsins.clear();
         fetchQueue = [];
         isFetching = false;
-        processAllTiles().then(() => setTimeout(runFetchQueue, 1000));
+        processAllTiles().then(() => setTimeout(runFetchQueueForCurrentPage, 1000));
       } else if (msg.type === 'GET_PAGINATION_INFO') {
         sendResponse(extractPagination());
+      } else if (msg.type === 'START_BACKGROUND_SCAN') {
+        if (!isBackgroundScanning) {
+          backgroundScanLoop();
+        }
+        sendResponse({ ok: true });
       }
       return true;
     });

@@ -2,11 +2,12 @@
 // Runs at the extension's origin (service worker, popup, options, compact view)
 
 const DB_NAME = 'VineExplorer';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const STORES = {
-  PRODUCTS: 'products',
-  KEYWORDS: 'keywords'
+  PRODUCTS:   'products',
+  KEYWORDS:   'keywords',
+  SCAN_STATE: 'scanState'
 };
 
 function openDB() {
@@ -30,11 +31,14 @@ function openDB() {
       }
 
       if (oldVersion < 2) {
-        // Add productSiteLaunchDate index (fresh installs get it above; upgrades add it here)
         const ps = transaction.objectStore(STORES.PRODUCTS);
         if (!ps.indexNames.contains('productSiteLaunchDate')) {
           ps.createIndex('productSiteLaunchDate', 'productSiteLaunchDate', { unique: false });
         }
+      }
+
+      if (oldVersion < 3) {
+        db.createObjectStore(STORES.SCAN_STATE, { keyPath: 'key' });
       }
     };
 
@@ -208,4 +212,43 @@ export async function deleteKeyword(id) {
     req.onsuccess = () => resolve();
     req.onerror   = () => reject(req.error);
   });
+}
+
+// ── Scan State ──────────────────────────────────────────────────────────────
+
+const DEFAULT_SCAN_STATE = {
+  key:             'currentScan',
+  status:          'idle',      // idle | running | paused
+  scanningTabId:   null,
+  currentQueue:    null,
+  currentPage:     1,
+  totalPages:      null,
+  lastActivity:    null,
+  completedQueues: []
+};
+
+export async function getScanState() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(STORES.SCAN_STATE, 'readonly');
+    const req = tx.objectStore(STORES.SCAN_STATE).get('currentScan');
+    req.onsuccess = () => resolve(req.result ?? { ...DEFAULT_SCAN_STATE });
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+export async function updateScanState(patch) {
+  const db       = await openDB();
+  const existing = await getScanState();
+  const record   = { ...existing, ...patch, key: 'currentScan' };
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(STORES.SCAN_STATE, 'readwrite');
+    const req = tx.objectStore(STORES.SCAN_STATE).put(record);
+    req.onsuccess = () => resolve(record);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+export async function resetScanState() {
+  return updateScanState({ ...DEFAULT_SCAN_STATE });
 }

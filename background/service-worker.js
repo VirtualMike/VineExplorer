@@ -9,7 +9,10 @@ import {
   getKeywords,
   addKeyword,
   deleteKeyword,
-  searchProducts
+  searchProducts,
+  getScanState,
+  updateScanState,
+  resetScanState
 } from '../db/db.js';
 
 // ── Message handler ───────────────────────────────────────────────────────────
@@ -96,6 +99,48 @@ async function handleMessage(msg, sender) {
       chrome.tabs.create({ url: chrome.runtime.getURL('compact/compact.html') });
       return { ok: true };
 
+    // ── Scan coordination ──────────────────────────────────────────────────
+    case 'CLAIM_SCAN_LOCK': {
+      const state = await getScanState();
+      const STALE_MS = 5 * 60_000; // 5 minutes
+      const isStale  = state.lastActivity && (Date.now() - state.lastActivity > STALE_MS);
+
+      if (state.status === 'running' && state.scanningTabId && !isStale) {
+        // Check if the holding tab is still alive
+        try {
+          await chrome.tabs.get(state.scanningTabId);
+          return { granted: false, reason: 'another tab is scanning' };
+        } catch {
+          // Tab is gone — fall through and grant
+        }
+      }
+
+      await updateScanState({
+        status:        'running',
+        scanningTabId: sender.tab?.id ?? null,
+        lastActivity:  Date.now()
+      });
+      return { granted: true, state: await getScanState() };
+    }
+
+    case 'RELEASE_SCAN_LOCK': {
+      await updateScanState({ status: 'idle', scanningTabId: null });
+      return { ok: true };
+    }
+
+    case 'GET_SCAN_STATE':
+      return { state: await getScanState() };
+
+    case 'UPDATE_SCAN_STATE': {
+      const updated = await updateScanState({ ...msg.patch, lastActivity: Date.now() });
+      return { ok: true, state: updated };
+    }
+
+    case 'RESET_SCAN_STATE': {
+      await resetScanState();
+      return { ok: true };
+    }
+
     default:
       return { error: `Unknown message type: ${msg.type}` };
   }
@@ -120,53 +165,34 @@ function notifyKeywordMatch(product, matched) {
   });
 }
 
-// ── Alarm: periodic availability check ───────────────────────────────────────
+// ── Alarm: periodic background scan trigger ──────────────────────────────────
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === 'availability-check') {
-    await runAvailabilityCheck();
+  if (alarm.name === 'background-scan') {
+    await triggerBackgroundScan();
   }
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create('availability-check', { periodInMinutes: 30 });
+  chrome.alarms.create('background-scan', { periodInMinutes: 30 });
 });
 
-async function runAvailabilityCheck() {
+async function triggerBackgroundScan() {
   const tabs = await chrome.tabs.query({ url: 'https://www.amazon.com/vine/*' });
   if (tabs.length === 0) return;
-
-  const tab = tabs[0]; // Use the first Vine tab
-
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_PAGINATION_INFO' });
-    const { current, total } = response;
-
-    if (current >= total) return; // Already on last page
-
-    // Scan remaining pages
-    for (let page = current + 1; page <= total; page++) {
-      const url = new URL(tab.url);
-      url.searchParams.set('page', page);
-      await chrome.tabs.update(tab.id, { url: url.toString() });
-
-      // Wait for page load
-      await new Promise((resolve) => {
-        const listener = (tabId, changeInfo) => {
-          if (tabId === tab.id && changeInfo.status === 'complete') {
-            chrome.tabs.onUpdated.removeListener(listener);
-            resolve();
-          }
-        };
-        chrome.tabs.onUpdated.addListener(listener);
-      });
-
-      // Rescrape the new page
-      chrome.tabs.sendMessage(tab.id, { type: 'REQUEST_RESCRAPE' }).catch(() => {});
-
-      // Delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    }
+    await chrome.tabs.sendMessage(tabs[0].id, { type: 'START_BACKGROUND_SCAN' });
   } catch (err) {
-    console.error('Error during availability check:', err);
+    console.log('[VineExplorer SW] Could not reach Vine tab:', err.message);
   }
 }
+
+// ── Stale scan lock cleanup ──────────────────────────────────────────────────
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  try {
+    const state = await getScanState();
+    if (state?.scanningTabId === tabId) {
+      await updateScanState({ status: 'paused', scanningTabId: null });
+      console.log('[VineExplorer SW] Scanning tab closed — scan paused for resume');
+    }
+  } catch { /* DB not ready yet — ignore */ }
+});
