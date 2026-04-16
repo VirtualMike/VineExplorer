@@ -1,0 +1,50 @@
+content.js:18 [VineExplorer] ═══ INIT page 14 ═══ https://www.amazon.com/vine/vine-items?queue=encore&pn=&cn=&page=14
+content.js:35 [VineExplorer] Keywords loaded: (16) ['filament', 'laser engraver', 'laser cutter', 'solder', 'soldering', 'magnetic mat', 'cutting mat', 'roling cutter', 'airsoft', 'router', 'makita', 'carplay', 'highlander carplay', 'nozzle', 'hotend', 'hot end']
+content.js:68 [VineExplorer] Found 36 tiles
+content.js:88 [VineExplorer] Tile B0GSYC139Q: already has ETV=$14.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GL7VB5Y8: already has ETV=$9.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GVCBH7JT: already has ETV=$18.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GJ4T11QJ: already has ETV=$9.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B098XS7X4H: already has ETV=$16.98 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GSY3W3J4: already has ETV=$16.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0FSJXSVYC: already has ETV=$8.88 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GTL9K7HK: already has ETV=$23.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GKNQB5WV: already has ETV=$22.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GMYM3Y6R: already has ETV=$13.6 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GQ3PDGRY: already has ETV=$20.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GL1TGMKB: already has ETV=$20.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0DKX9RMWQ: already has ETV=$23.17 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJG94GL: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJBVK9B: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJKHV3N: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJR9TMS: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJJCSDL: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJH2XLX: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJRF81G: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJHDWLP: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJRHQ45: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJ9YNSN: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GCYBZDFC: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJB4X58: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJ9T7PZ: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJGY6SY: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJFVVP7: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJF7RBP: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJKM6Z1: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJ2PM81: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJQWMD8: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJJ6YG2: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GGJLVJWJ: already has ETV=$11.99 — skipping fetch
+content.js:88 [VineExplorer] Tile B0GCY245W3: already has ETV=$11.99 — skipping fetch
+content.js:22 [VineExplorer] Tiles processed. 1 queued for ETV fetch, 36 ASINs seen.
+content.js:27 [VineExplorer] Waiting 3s before starting ETV fetch queue…
+s.amazon-adsystem.com/iu3?d=amazon.com&slot=navFooter&a1=Pa0eLFSukvSSJ-r-IToYGpqMg&a2=01018942e3b40aa2075da76575c99684b3a3b88a9f5d8fbe9105537c79d7b3b8477e&old_oo=0&ts=1776304659486&s=AfuGngCckW2JZ0CRJFWcqVTgt7aC6YMNUswaVXGMFTIh&gdpr_consent=&gdpr_consent_avl=&cb=1776304659486:1 Blocked script execution in 'https://s.amazon-adsystem.com/iu3?d=amazon.com&slot=navFooter&a1=Pa0eLFSukvSSJ-r-IToYGpqMg&a2=01018942e3b40aa2075da76575c99684b3a3b88a9f5d8fbe9105537c79d7b3b8477e&old_oo=0&ts=1776304659486&s=AfuGngCckW2JZ0CRJFWcqVTgt7aC6YMNUswaVXGMFTIh&gdpr_consent=&gdpr_consent_avl=&cb=1776304659486' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+
+content.js:259 [VineExplorer] ─── ETV FETCH START ─── 1 items queued
+content.js:266 [VineExplorer] [1/1] Fetching B0GS8PCPXT…
+content.js:179 [VineExplorer] Fetching ETV from API for ASIN: B0GS8PCPXT  RecID: ATVPDKIKX0DER#B0GS8PCPXT#vine.enrollment.76dba4c4-6c09-40a1-a1f8-5c2a83877971
+content.js:192 [VineExplorer] API response for item detail: {asin: 'B0GS8PCPXT', imageUrl: 'https://m.media-amazon.com/images/I/319RxHZOt8L._SS180_.jpg', productTitle: 'Aomitop 5PCS 90626125 String Trimmer Spring Replac…rt Compatible with Black & Decker LSTE525 LSTE523', featureBullets: Array(5), byLineContributors: Array(1), …}
+content.js:193 [VineExplorer] DetailURL: /vine/api/recommendations/ATVPDKIKX0DER%23B0GS8PCPXT%23vine.enrollment.76dba4c4-6c09-40a1-a1f8-5c2a83877971/item/B0GS8PCPXT?imageSize=180
+content.js:270 [VineExplorer] [1/1] B0GS8PCPXT: ETV=9.99  options=false  limited=false  vendor=Aomitop  desc=yes
+content.js:297 [VineExplorer] ─── ETV FETCH DONE ─── 1 items processed
+content.js:298 [VineExplorer] Pausing 60s before next page (download logs now)…
