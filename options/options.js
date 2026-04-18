@@ -1,8 +1,16 @@
 // options/options.js
 import { getKeywords, addKeyword, deleteKeyword, purgeRemovedProducts } from '../db/db.js';
 
+const SCAN_DEFAULTS = {
+  PageBackgroundScanDelay:       3000,
+  PageBackgroundScanRandomness:  5000,
+  ETVBackgroundScanDelay:        3000,
+  ETVBackgroundScanRandomness:   5000
+};
+
 async function init() {
   await loadKeywords();
+  await loadScanSettings();
   await loadStats();
   bindEvents();
 }
@@ -91,6 +99,29 @@ async function handlePurge() {
   await loadStats();
 }
 
+// ── Scan Settings ────────────────────────────────────────────────────────────
+async function loadScanSettings() {
+  const stored = await chrome.storage.local.get(SCAN_DEFAULTS);
+  document.getElementById('page-delay').value  = stored.PageBackgroundScanDelay;
+  document.getElementById('page-random').value = stored.PageBackgroundScanRandomness;
+  document.getElementById('etv-delay').value   = stored.ETVBackgroundScanDelay;
+  document.getElementById('etv-random').value  = stored.ETVBackgroundScanRandomness;
+}
+
+function saveScanSettings() {
+  const settings = {
+    PageBackgroundScanDelay:      Math.max(500, parseInt(document.getElementById('page-delay').value, 10) || SCAN_DEFAULTS.PageBackgroundScanDelay),
+    PageBackgroundScanRandomness: Math.max(0,   parseInt(document.getElementById('page-random').value, 10) || SCAN_DEFAULTS.PageBackgroundScanRandomness),
+    ETVBackgroundScanDelay:       Math.max(500, parseInt(document.getElementById('etv-delay').value, 10) || SCAN_DEFAULTS.ETVBackgroundScanDelay),
+    ETVBackgroundScanRandomness:  Math.max(0,   parseInt(document.getElementById('etv-random').value, 10) || SCAN_DEFAULTS.ETVBackgroundScanRandomness)
+  };
+  chrome.storage.local.set(settings);
+  const msg = document.getElementById('scan-saved');
+  msg.textContent = 'Settings saved.';
+  msg.classList.remove('hidden');
+  setTimeout(() => msg.classList.add('hidden'), 2000);
+}
+
 // ── Events ───────────────────────────────────────────────────────────────────
 function bindEvents() {
   document.getElementById('kw-add').addEventListener('click', handleAddKeyword);
@@ -98,6 +129,10 @@ function bindEvents() {
     if (e.key === 'Enter') handleAddKeyword();
   });
   document.getElementById('btn-purge').addEventListener('click', handlePurge);
+
+  for (const id of ['page-delay', 'page-random', 'etv-delay', 'etv-random']) {
+    document.getElementById(id).addEventListener('change', saveScanSettings);
+  }
 }
 
 init();

@@ -9,10 +9,22 @@
   let keywords             = [];
   let statusBar            = null;
   let processedAsins       = new Set();
-  let fetchQueue           = [];
+  let fetchQueue           = [];      // current-page ETV queue (tiles with DOM refs)
   let isFetching           = false;
   let isBackgroundScanning = false;
   let scanAborted          = false;
+
+  // Shared queue for background ETV scanning — sorted by productSiteLaunchDate (newest first)
+  let etvQueue     = [];
+  let pageScanDone = false;
+
+  // Scan delay settings (loaded from chrome.storage.local)
+  let scanSettings = {
+    PageBackgroundScanDelay:      3000,
+    PageBackgroundScanRandomness: 5000,
+    ETVBackgroundScanDelay:       3000,
+    ETVBackgroundScanRandomness:  5000
+  };
 
   const isVineItemsPage = window.location.pathname.startsWith('/vine/vine-items');
 
@@ -20,6 +32,7 @@
   async function init() {
     console.log(`[VineExplorer] ═══ INIT ═══ ${window.location.href}`);
     await loadKeywords();
+    await loadSettings();
     injectStatusBar();
     listenForMessages();
 
@@ -31,7 +44,6 @@
 
     updateStatusCount();
 
-    // Abort background scan on page unload so state is cleanly saved
     window.addEventListener('beforeunload', () => { scanAborted = true; });
 
     // Start: process current page ETVs then background scan
@@ -39,8 +51,16 @@
       if (isVineItemsPage && fetchQueue.length > 0) {
         await runFetchQueueForCurrentPage();
       }
-      await backgroundScanLoop();
+      await startBackgroundScan();
     }, 3000);
+  }
+
+  async function loadSettings() {
+    try {
+      const stored = await chrome.storage.local.get(scanSettings);
+      Object.assign(scanSettings, stored);
+      console.log('[VineExplorer] Scan settings:', scanSettings);
+    } catch { /* use defaults */ }
   }
 
   // ── Keywords ───────────────────────────────────────────────────────────────
@@ -349,113 +369,27 @@
     return { products, totalPages };
   }
 
-  async function backgroundScanLoop() {
-    // Tab ID is resolved by the service worker from sender.tab.id
+  // ── Orchestrator ─────────────────────────────────────────────────────────
+  async function startBackgroundScan() {
     const claim = await send({ type: 'CLAIM_SCAN_LOCK' });
     if (!claim.granted) {
       console.log('[VineExplorer] Another tab is scanning — skipping background scan');
       setStatus('Vine Explorer — another tab is scanning');
-      isBackgroundScanning = false;
       return;
     }
 
     isBackgroundScanning = true;
-    scanAborted = false;
+    scanAborted  = false;
+    pageScanDone = false;
+    etvQueue     = [];
     console.log('[VineExplorer] ═══ BACKGROUND SCAN START ═══');
 
-    const state = claim.state || {};
-    const queues         = ['potluck', 'encore', 'last_chance'];
-    const completedQueues = new Set(state.completedQueues || []);
-
     try {
-      for (const queue of queues) {
-        if (scanAborted) break;
-        if (completedQueues.has(queue)) {
-          console.log(`[VineExplorer] Queue "${queue}" already completed — skipping`);
-          continue;
-        }
-
-        // Resume from saved page if we're continuing the same queue
-        let page = (state.currentQueue === queue && state.currentPage > 1)
-          ? state.currentPage
-          : 1;
-        let totalPages = state.totalPages || null;
-
-        console.log(`[VineExplorer] ─── Scanning queue: ${queue} (starting page ${page}) ───`);
-
-        while (!scanAborted) {
-          setStatus(`Scanning ${queue} page ${page}${totalPages ? '/' + totalPages : ''}…`);
-
-          let parsed;
-          try {
-            const html = await fetchPageHtml(queue, page);
-            parsed = parsePageProducts(html);
-          } catch (err) {
-            console.error(`[VineExplorer] Failed to fetch ${queue} page ${page}:`, err.message);
-            // Retry once after a delay
-            await sleep(10_000);
-            try {
-              const html = await fetchPageHtml(queue, page);
-              parsed = parsePageProducts(html);
-            } catch (retryErr) {
-              console.error(`[VineExplorer] Retry failed for ${queue} page ${page}:`, retryErr.message);
-              break; // Move on to next queue
-            }
-          }
-
-          totalPages = parsed.totalPages;
-          console.log(`[VineExplorer] ${queue} page ${page}/${totalPages}: ${parsed.products.length} products`);
-
-          // Save basic product data and collect items needing ETV
-          const needsEtv = [];
-          for (const p of parsed.products) {
-            const saveRes = await send({ type: 'SAVE_PRODUCT', product: { ...p, category: queue } });
-            if (saveRes?.product?.etv === null || saveRes?.product?.etv === undefined) {
-              needsEtv.push(p);
-            }
-          }
-
-          // Fetch ETVs for items that need them
-          if (needsEtv.length > 0) {
-            console.log(`[VineExplorer] Fetching ETVs for ${needsEtv.length} items on ${queue} page ${page}`);
-            let etvCount = 0;
-            for (const p of needsEtv) {
-              if (scanAborted) break;
-              etvCount++;
-              setStatus(`Scanning ${queue} p${page}/${totalPages} — ETV ${etvCount}/${needsEtv.length}`);
-
-              const apiResult = await fetchEtvFromApi(p.recommendationId, p.asin);
-              const update = buildUpdateFromApi(p.asin, apiResult);
-              update.category = queue;
-              await send({ type: 'SAVE_PRODUCT', product: update });
-
-              await sleep(randomBetween(3000, 8000));
-            }
-          }
-
-          // Checkpoint progress
-          await send({ type: 'UPDATE_SCAN_STATE', patch: {
-            currentQueue: queue,
-            currentPage:  page + 1,
-            totalPages
-          }});
-
-          if (page >= totalPages) break;
-          page++;
-          await sleep(randomBetween(3000, 8000));
-        }
-
-        // Mark queue complete
-        completedQueues.add(queue);
-        await send({ type: 'UPDATE_SCAN_STATE', patch: {
-          completedQueues: [...completedQueues]
-        }});
-        console.log(`[VineExplorer] ─── Queue "${queue}" done ───`);
-
-        if (!scanAborted && queue !== queues[queues.length - 1]) {
-          await sleep(randomBetween(10_000, 25_000));
-        }
-      }
+      // Run page scanner and ETV scanner concurrently
+      await Promise.all([
+        pageScannerLoop(claim.state || {}),
+        etvScannerLoop()
+      ]);
     } finally {
       isBackgroundScanning = false;
       await send({ type: 'RELEASE_SCAN_LOCK' });
@@ -469,6 +403,142 @@
         console.log('[VineExplorer] ═══ BACKGROUND SCAN ABORTED (page unload) ═══');
       }
     }
+  }
+
+  // ── Page Scanner ───────────────────────────────────────────────────────────
+  // Fast loop: fetches catalog pages, saves basic product data, pushes items
+  // needing ETV into the shared etvQueue for the ETV scanner.
+
+  async function pageScannerLoop(state) {
+    const queues          = ['potluck', 'encore', 'last_chance'];
+    const completedQueues = new Set(state.completedQueues || []);
+
+    try {
+      for (const queue of queues) {
+        if (scanAborted) break;
+        if (completedQueues.has(queue)) {
+          console.log(`[VineExplorer] [PageScan] Queue "${queue}" already completed — skipping`);
+          continue;
+        }
+
+        let page = (state.currentQueue === queue && state.currentPage > 1)
+          ? state.currentPage
+          : 1;
+        let totalPages = state.totalPages || null;
+
+        console.log(`[VineExplorer] [PageScan] ─── Queue: ${queue} (starting page ${page}) ───`);
+
+        while (!scanAborted) {
+          setStatus(`Scanning ${queue} page ${page}${totalPages ? '/' + totalPages : ''}… (${etvQueue.length} ETV queued)`);
+
+          let parsed;
+          try {
+            const html = await fetchPageHtml(queue, page);
+            parsed = parsePageProducts(html);
+          } catch (err) {
+            console.error(`[VineExplorer] [PageScan] Failed ${queue} p${page}:`, err.message);
+            await sleep(10_000);
+            try {
+              const html = await fetchPageHtml(queue, page);
+              parsed = parsePageProducts(html);
+            } catch (retryErr) {
+              console.error(`[VineExplorer] [PageScan] Retry failed ${queue} p${page}:`, retryErr.message);
+              break;
+            }
+          }
+
+          totalPages = parsed.totalPages;
+          console.log(`[VineExplorer] [PageScan] ${queue} p${page}/${totalPages}: ${parsed.products.length} products`);
+
+          // Save basic product data and push items needing ETV to the shared queue
+          for (const p of parsed.products) {
+            if (scanAborted) break;
+            const productData = { ...p, category: queue };
+            if (queue === 'encore') productData.encorePageFirstSeen = page;
+
+            const saveRes = await send({ type: 'SAVE_PRODUCT', product: productData });
+            const saved   = saveRes?.product;
+
+            if (saved && (saved.etv === null || saved.etv === undefined)) {
+              // Push to ETV queue with the launch date for sorting
+              etvQueue.push({
+                asin:                  p.asin,
+                recommendationId:      p.recommendationId,
+                category:              queue,
+                productSiteLaunchDate: saved.productSiteLaunchDate ?? null
+              });
+            }
+          }
+
+          // Checkpoint progress
+          await send({ type: 'UPDATE_SCAN_STATE', patch: {
+            currentQueue: queue,
+            currentPage:  page + 1,
+            totalPages
+          }});
+
+          if (page >= totalPages) break;
+          page++;
+
+          const delay = scanSettings.PageBackgroundScanDelay
+                      + randomBetween(0, scanSettings.PageBackgroundScanRandomness);
+          await sleep(delay);
+        }
+
+        completedQueues.add(queue);
+        await send({ type: 'UPDATE_SCAN_STATE', patch: {
+          completedQueues: [...completedQueues]
+        }});
+        console.log(`[VineExplorer] [PageScan] ─── Queue "${queue}" done ───`);
+
+        if (!scanAborted && queue !== queues[queues.length - 1]) {
+          await sleep(randomBetween(10_000, 25_000));
+        }
+      }
+    } finally {
+      pageScanDone = true;
+      console.log(`[VineExplorer] [PageScan] Finished. ${etvQueue.length} items still in ETV queue.`);
+    }
+  }
+
+  // ── ETV Scanner ────────────────────────────────────────────────────────────
+  // Runs concurrently with the page scanner. Pulls from the shared etvQueue,
+  // always processing the newest item first (sorted by productSiteLaunchDate).
+
+  async function etvScannerLoop() {
+    console.log('[VineExplorer] [ETVScan] Started — waiting for items…');
+
+    while (!scanAborted) {
+      // Wait for items or for the page scanner to finish
+      if (etvQueue.length === 0) {
+        if (pageScanDone) break; // nothing left to process
+        await sleep(2000);       // short poll — page scanner is still adding items
+        continue;
+      }
+
+      // Sort: newest productSiteLaunchDate first, nulls last
+      etvQueue.sort((a, b) => {
+        if (a.productSiteLaunchDate == null && b.productSiteLaunchDate == null) return 0;
+        if (a.productSiteLaunchDate == null) return 1;
+        if (b.productSiteLaunchDate == null) return -1;
+        return b.productSiteLaunchDate - a.productSiteLaunchDate;
+      });
+
+      const item = etvQueue.shift();
+      setStatus(`ETV: ${etvQueue.length + 1} remaining…`);
+      console.log(`[VineExplorer] [ETVScan] Fetching ${item.asin} (queue left: ${etvQueue.length})`);
+
+      const apiResult = await fetchEtvFromApi(item.recommendationId, item.asin);
+      const update    = buildUpdateFromApi(item.asin, apiResult);
+      update.category = item.category;
+      await send({ type: 'SAVE_PRODUCT', product: update });
+
+      const delay = scanSettings.ETVBackgroundScanDelay
+                  + randomBetween(0, scanSettings.ETVBackgroundScanRandomness);
+      await sleep(delay);
+    }
+
+    console.log('[VineExplorer] [ETVScan] Done.');
   }
 
   // ── MutationObserver for infinite scroll ──────────────────────────────────
@@ -502,7 +572,7 @@
         sendResponse(extractPagination());
       } else if (msg.type === 'START_BACKGROUND_SCAN') {
         if (!isBackgroundScanning) {
-          backgroundScanLoop();
+          startBackgroundScan();
         }
         sendResponse({ ok: true });
       }

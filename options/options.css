@@ -183,3 +183,39 @@ main {
 }
 
 .btn.btn-danger:hover { background: #a93226; }
+
+/* Settings grid */
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 20px;
+  margin-bottom: 12px;
+}
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setting-group label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.setting-group input[type="number"] {
+  padding: 8px 10px;
+  border: 1px solid #d5d9d9;
+  border-radius: 6px;
+  font-size: 13px;
+  width: 100%;
+}
+
+.setting-group input[type="number"]:focus {
+  outline: 2px solid #ff9900;
+  border-color: transparent;
+}
+
+.setting-group .hint {
+  margin-bottom: 0;
+}

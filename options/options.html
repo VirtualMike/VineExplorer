@@ -26,6 +26,37 @@
       </ul>
     </section>
 
+    <!-- Scan Settings -->
+    <section class="card" id="section-scan">
+      <h2>&#9881; Scan Settings</h2>
+      <p class="hint">Control the speed of background scanning. Higher values = slower but gentler on Amazon. Total delay per action = base + random(0, randomness).</p>
+
+      <div class="settings-grid">
+        <div class="setting-group">
+          <label for="page-delay">Page Scan Delay (ms)</label>
+          <input type="number" id="page-delay" min="500" step="500" />
+          <span class="hint">Base delay between page fetches</span>
+        </div>
+        <div class="setting-group">
+          <label for="page-random">Page Scan Randomness (ms)</label>
+          <input type="number" id="page-random" min="0" step="500" />
+          <span class="hint">Random 0–N ms added to base</span>
+        </div>
+        <div class="setting-group">
+          <label for="etv-delay">ETV Scan Delay (ms)</label>
+          <input type="number" id="etv-delay" min="500" step="500" />
+          <span class="hint">Base delay between ETV API calls</span>
+        </div>
+        <div class="setting-group">
+          <label for="etv-random">ETV Scan Randomness (ms)</label>
+          <input type="number" id="etv-random" min="0" step="500" />
+          <span class="hint">Random 0–N ms added to base</span>
+        </div>
+      </div>
+
+      <p id="scan-saved" class="hint hidden">Settings saved.</p>
+    </section>
+
     <!-- Database management -->
     <section class="card" id="section-db">
       <h2>&#128451; Database</h2>
