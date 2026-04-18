@@ -5,6 +5,7 @@
   position: fixed;
   bottom: 16px;
   right: 16px;
+  max-width: 1500px;
   z-index: 999999;
   background: #232f3e;
   color: #fff;
