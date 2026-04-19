@@ -604,6 +604,23 @@
     return Math.floor(Math.random() * (max - min + 1)) + min;
   }
 
+  /**
+   * Extracts the first three words from a given string.
+   * @param {string} text - The input text.
+   * @returns {string} - The first three words joined by spaces.
+   */
+  function getFirstThreeWords(text) {
+      if (typeof text !== "string") {
+          throw new TypeError("Input must be a string");
+      }
+
+      // Trim leading/trailing spaces and split by one or more whitespace characters
+      const words = text.trim().split(/\s+/);
+
+      // Return up to the first three words
+      return words.slice(0, 3).join(" ");
+  }
+
   // Retries if the MV3 service worker isn't awake yet.
   function send(msg, retries = 4, delayMs = 300) {
     return new Promise((resolve) => {

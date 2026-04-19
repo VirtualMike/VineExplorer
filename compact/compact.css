@@ -181,7 +181,7 @@ td {
 }
 
 .img-wrap:hover img {
-  transform: scale(4.5) translateX(20px);
+  transform: scale(4.5) translateX(30px);
   box-shadow: 0 8px 24px rgba(0,0,0,.35);
   z-index: 999;
 }
