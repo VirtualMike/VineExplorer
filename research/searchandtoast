@@ -1,0 +1,57 @@
+            // see https://stackoverflow.com/questions/874709/converting-user-input-string-to-regular-expression
+            var stringToRegex = (s, m) => ((m = s.match(/^\/(.*?)\/([gimsuy]*)$/))) ? new RegExp(m[1], m[2].split('').filter((i, p, s) => s.indexOf(i) === p).join('')) : undefined;
+
+
+// Install: npm install winrt
+const winrt = require('winrt');
+
+// Import Windows UWP Toast APIs
+const Notifications = winrt.import("Windows.UI.Notifications");
+const Xml = winrt.import("Windows.Data.Xml.Dom");
+
+function showRichNotification(title, message, imageUrl, linkUrl) {
+    try {
+        // XML template for toast with online image and text
+        const toastXmlString = `
+        <toast activationType="protocol" launch="${linkUrl}">
+            <visual>
+                <binding template="ToastGeneric">
+                    <image placement="appLogoOverride" src="${imageUrl}" />
+                    <text>${title}</text>
+                    <text>${message}</text>
+                </binding>
+            </visual>
+            <actions>
+                <action
+                    content="Open Link"
+                    activationType="protocol"
+                    arguments="${linkUrl}" />
+            </actions>
+        </toast>`;
+
+        // Load XML into DOM
+        const xmlDoc = new Xml.XmlDocument();
+        xmlDoc.loadXml(toastXmlString);
+
+        // Create toast notification
+        const toast = new Notifications.ToastNotification(xmlDoc);
+
+        // Create notifier (App ID can be any string for Node.js)
+        const notifier = Notifications.ToastNotificationManager.createToastNotifier("NodeJS App");
+
+        // Show the toast
+        notifier.show(toast);
+
+        console.log("Notification sent!");
+    } catch (err) {
+        console.error("Error showing notification:", err);
+    }
+}
+
+// Example usage with an online image
+showRichNotification(
+    "JavaScript Alert",
+    "Click below to visit OpenAI.",
+    "https://upload.wikimedia.org/wikipedia/commons/4/4f/OpenAI_Logo.svg", // Online image URL
+    "https://openai.com"
+);
