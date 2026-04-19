@@ -254,3 +254,82 @@ export async function updateScanState(patch) {
 export async function resetScanState() {
   return updateScanState({ ...DEFAULT_SCAN_STATE });
 }
+
+// ── Export / Import ─────────────────────────────────────────────────────────
+
+export async function exportAll() {
+  const db = await openDB();
+  const products = await new Promise((resolve, reject) => {
+    const req = db.transaction(STORES.PRODUCTS, 'readonly').objectStore(STORES.PRODUCTS).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+  const keywords = await new Promise((resolve, reject) => {
+    const req = db.transaction(STORES.KEYWORDS, 'readonly').objectStore(STORES.KEYWORDS).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+  return {
+    version:    DB_VERSION,
+    exportedAt: new Date().toISOString(),
+    products,
+    keywords
+  };
+}
+
+export async function importAll(data, { mergeProducts = true } = {}) {
+  const db = await openDB();
+  const stats = { productsImported: 0, productsSkipped: 0, keywordsImported: 0 };
+
+  if (data.products?.length) {
+    await new Promise((resolve, reject) => {
+      const tx    = db.transaction(STORES.PRODUCTS, 'readwrite');
+      const store = tx.objectStore(STORES.PRODUCTS);
+
+      for (const p of data.products) {
+        if (!p.asin) continue;
+        if (mergeProducts) {
+          const getReq = store.get(p.asin);
+          getReq.onsuccess = () => {
+            const existing = getReq.result;
+            if (existing) {
+              // Keep whichever record was seen more recently
+              if ((existing.dateLastSeen || 0) >= (p.dateLastSeen || 0)) {
+                stats.productsSkipped++;
+                return;
+              }
+            }
+            store.put(p);
+            stats.productsImported++;
+          };
+        } else {
+          store.put(p);
+          stats.productsImported++;
+        }
+      }
+
+      tx.oncomplete = () => resolve();
+      tx.onerror    = () => reject(tx.error);
+    });
+  }
+
+  if (data.keywords?.length) {
+    await new Promise((resolve, reject) => {
+      const tx    = db.transaction(STORES.KEYWORDS, 'readwrite');
+      const store = tx.objectStore(STORES.KEYWORDS);
+
+      for (const kw of data.keywords) {
+        if (!kw.keyword) continue;
+        // Use add() — will silently fail on duplicates due to unique index
+        const req = store.add({ keyword: kw.keyword, dateAdded: kw.dateAdded || Date.now() });
+        req.onsuccess = () => { stats.keywordsImported++; };
+        req.onerror   = (e) => { e.preventDefault(); }; // suppress duplicate error
+      }
+
+      tx.oncomplete = () => resolve();
+      tx.onerror    = () => reject(tx.error);
+    });
+  }
+
+  return stats;
+}

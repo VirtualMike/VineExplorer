@@ -1,5 +1,5 @@
 // options/options.js
-import { getKeywords, addKeyword, deleteKeyword, purgeRemovedProducts } from '../db/db.js';
+import { getKeywords, addKeyword, deleteKeyword, purgeRemovedProducts, exportAll, importAll } from '../db/db.js';
 
 const SCAN_DEFAULTS = {
   PageBackgroundScanDelay:       3000,
@@ -135,6 +135,12 @@ function bindEvents() {
   }
 
   document.getElementById('btn-rescan').addEventListener('click', handleRescan);
+  document.getElementById('btn-export').addEventListener('click', handleExport);
+  document.getElementById('btn-import').addEventListener('click', () => {
+    document.getElementById('import-file').click();
+  });
+  document.getElementById('import-file').addEventListener('change', handleFileSelected);
+  document.getElementById('btn-import-confirm').addEventListener('click', handleImportConfirm);
 }
 
 // ── Rescan ───────────────────────────────────────────────────────────────────
@@ -176,6 +182,85 @@ async function handleRescan() {
       loadStats();
     }
   });
+}
+
+// ── Export / Import ──────────────────────────────────────────────────────────
+let pendingImportData = null;
+
+async function handleExport() {
+  const btn = document.getElementById('btn-export');
+  btn.disabled = true;
+  btn.textContent = 'Exporting…';
+
+  try {
+    const data = await exportAll();
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href     = url;
+    a.download = `vine-explorer-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    const result = document.getElementById('import-result');
+    result.textContent = `Exported ${data.products.length} products and ${data.keywords.length} keywords.`;
+    result.classList.remove('hidden');
+    setTimeout(() => result.classList.add('hidden'), 5000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Export Data';
+  }
+}
+
+function handleFileSelected(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      pendingImportData = JSON.parse(reader.result);
+      const result = document.getElementById('import-result');
+      const pCount = pendingImportData.products?.length || 0;
+      const kCount = pendingImportData.keywords?.length || 0;
+      result.textContent = `File loaded: ${pCount} products, ${kCount} keywords. Click "Start Import" to proceed.`;
+      result.classList.remove('hidden');
+      document.getElementById('import-options').classList.remove('hidden');
+    } catch {
+      const result = document.getElementById('import-result');
+      result.textContent = 'Invalid JSON file.';
+      result.classList.remove('hidden');
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+async function handleImportConfirm() {
+  if (!pendingImportData) return;
+  const btn    = document.getElementById('btn-import-confirm');
+  const result = document.getElementById('import-result');
+  const merge  = document.getElementById('import-merge').checked;
+
+  btn.disabled = true;
+  btn.textContent = 'Importing…';
+  result.textContent = 'Import in progress…';
+
+  try {
+    const stats = await importAll(pendingImportData, { mergeProducts: merge });
+    result.textContent = `Imported ${stats.productsImported} products (${stats.productsSkipped} skipped), ${stats.keywordsImported} keywords.`;
+    await loadKeywords();
+    await loadStats();
+  } catch (err) {
+    result.textContent = `Import failed: ${err.message}`;
+  } finally {
+    pendingImportData = null;
+    btn.disabled = false;
+    btn.textContent = 'Start Import';
+    document.getElementById('import-options').classList.add('hidden');
+  }
 }
 
 init();

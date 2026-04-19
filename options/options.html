@@ -89,6 +89,23 @@
       </div>
 
       <p id="purge-result" class="hint hidden"></p>
+
+      <hr class="section-divider" />
+      <h3>Export / Import</h3>
+      <p class="hint">Transfer your product database and keywords between machines.</p>
+      <div class="export-import-row">
+        <button id="btn-export" class="btn btn-primary">Export Data</button>
+        <button id="btn-import" class="btn">Import Data…</button>
+        <input type="file" id="import-file" accept=".json" class="hidden" />
+      </div>
+      <div id="import-options" class="import-options hidden">
+        <label class="checkbox-label">
+          <input type="checkbox" id="import-merge" checked />
+          Merge (skip products that are newer locally)
+        </label>
+        <button id="btn-import-confirm" class="btn btn-primary">Start Import</button>
+      </div>
+      <p id="import-result" class="hint hidden"></p>
     </section>
   </main>
 
