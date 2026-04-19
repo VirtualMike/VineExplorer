@@ -77,6 +77,7 @@ export async function upsertProduct(product) {
                          : null,
         productSiteLaunchDate: product.productSiteLaunchDate ?? existing?.productSiteLaunchDate ?? null,
         limitedQuantity:       product.limitedQuantity      ?? existing?.limitedQuantity      ?? false,
+        recommendationId:      product.recommendationId ?? existing?.recommendationId ?? null,
         encorePageFirstSeen:   existing?.encorePageFirstSeen ?? product.encorePageFirstSeen ?? null,
         keywordsMatched: product.keywordsMatched ?? existing?.keywordsMatched ?? []
       };

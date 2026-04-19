@@ -152,12 +152,14 @@
       '.vvp-item-product-title-container span.a-truncate-cut, ' +
       '.vvp-item-product-title-container span'
     );
-    const imgEl = tile.querySelector('img');
+    const imgEl  = tile.querySelector('img');
+    const recInput = tile.querySelector('input[data-recommendation-id]');
     return {
       asin,
-      title:    titleEl?.textContent?.trim() || '',
-      imageUrl: imgEl?.src || imgEl?.getAttribute('data-src') || '',
-      available: true
+      title:            titleEl?.textContent?.trim() || '',
+      imageUrl:         imgEl?.src || imgEl?.getAttribute('data-src') || '',
+      recommendationId: recInput?.getAttribute('data-recommendation-id') || null,
+      available:        true
     };
   }
 
@@ -541,6 +543,65 @@
     console.log('[VineExplorer] [ETVScan] Done.');
   }
 
+  // ── Rescan utility ──────────────────────────────────────────────────────────
+  // Fills in missing data for products already in the DB by calling the API.
+  // Runs at 5 calls/second in 40-item bursts with a random 3-8s pause between.
+
+  let isRescanning = false;
+
+  async function rescanProducts() {
+    if (isRescanning) return;
+    isRescanning = true;
+
+    const allRes = await send({ type: 'GET_ALL_PRODUCTS', includeRemoved: true });
+    const products = allRes?.products || [];
+
+    // Filter to products that have a recommendationId but are missing data
+    const needsRescan = products.filter(p =>
+      p.recommendationId &&
+      (p.etv === null || p.etv === undefined || !p.description || !p.vendor)
+    );
+
+    console.log(`[VineExplorer] [Rescan] ${needsRescan.length} products need data (of ${products.length} total)`);
+    if (needsRescan.length === 0) {
+      isRescanning = false;
+      return { scanned: 0, total: products.length };
+    }
+
+    const BURST_SIZE  = 40;
+    const CALL_DELAY  = 200; // 5 calls/second
+    let scanned = 0;
+
+    for (let i = 0; i < needsRescan.length; i += BURST_SIZE) {
+      const burst = needsRescan.slice(i, i + BURST_SIZE);
+      console.log(`[VineExplorer] [Rescan] Burst ${Math.floor(i / BURST_SIZE) + 1}: ${burst.length} items (${scanned}/${needsRescan.length} done)`);
+
+      for (const p of burst) {
+        setStatus(`Rescan: ${scanned + 1}/${needsRescan.length}…`);
+
+        const apiResult = await fetchEtvFromApi(p.recommendationId, p.asin);
+        const update = buildUpdateFromApi(p.asin, apiResult);
+        await send({ type: 'SAVE_PRODUCT', product: update });
+
+        scanned++;
+        await sleep(CALL_DELAY);
+      }
+
+      // Pause between bursts (unless this was the last burst)
+      if (i + BURST_SIZE < needsRescan.length) {
+        const pause = randomBetween(3000, 8000);
+        console.log(`[VineExplorer] [Rescan] Burst done, pausing ${pause}ms…`);
+        await sleep(pause);
+      }
+    }
+
+    console.log(`[VineExplorer] [Rescan] Complete: ${scanned} products updated`);
+    isRescanning = false;
+    await updateStatusCount();
+    setStatus(`Rescan complete — ${scanned} products updated`);
+    return { scanned, total: products.length };
+  }
+
   // ── MutationObserver for infinite scroll ──────────────────────────────────
   function observePageChanges() {
     const grid = document.querySelector('#vvp-items-grid, .vvp-items-grid, main');
@@ -575,6 +636,13 @@
           startBackgroundScan();
         }
         sendResponse({ ok: true });
+      } else if (msg.type === 'START_RESCAN') {
+        if (!isRescanning) {
+          rescanProducts().then(result => {
+            chrome.runtime.sendMessage({ type: 'RESCAN_COMPLETE', result });
+          });
+        }
+        sendResponse({ ok: true, alreadyRunning: isRescanning });
       }
       return true;
     });

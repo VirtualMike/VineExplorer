@@ -133,6 +133,49 @@ function bindEvents() {
   for (const id of ['page-delay', 'page-random', 'etv-delay', 'etv-random']) {
     document.getElementById(id).addEventListener('change', saveScanSettings);
   }
+
+  document.getElementById('btn-rescan').addEventListener('click', handleRescan);
+}
+
+// ── Rescan ───────────────────────────────────────────────────────────────────
+async function handleRescan() {
+  const btn    = document.getElementById('btn-rescan');
+  const status = document.getElementById('rescan-status');
+
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
+  status.textContent = '';
+
+  const res = await chrome.runtime.sendMessage({ type: 'TRIGGER_RESCAN' });
+
+  if (!res?.ok) {
+    status.textContent = res?.error || 'Failed to start rescan.';
+    btn.disabled = false;
+    btn.textContent = 'Rescan Missing Data';
+    return;
+  }
+
+  if (res.alreadyRunning) {
+    status.textContent = 'Rescan is already running.';
+    btn.disabled = false;
+    btn.textContent = 'Rescan Missing Data';
+    return;
+  }
+
+  btn.textContent = 'Rescanning…';
+  status.textContent = 'Running — check the Vine tab status bar for progress.';
+
+  // Listen for completion notification from the service worker
+  chrome.runtime.onMessage.addListener(function listener(msg) {
+    if (msg.type === 'RESCAN_COMPLETE') {
+      chrome.runtime.onMessage.removeListener(listener);
+      const r = msg.result || {};
+      status.textContent = `Done — ${r.scanned || 0} products updated.`;
+      btn.disabled = false;
+      btn.textContent = 'Rescan Missing Data';
+      loadStats();
+    }
+  });
 }
 
 init();

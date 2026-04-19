@@ -141,6 +141,19 @@ async function handleMessage(msg, sender) {
       return { ok: true };
     }
 
+    case 'TRIGGER_RESCAN': {
+      const tabs = await chrome.tabs.query({ url: 'https://www.amazon.com/vine/*' });
+      if (tabs.length === 0) {
+        return { ok: false, error: 'No Vine tab open. Open any Amazon Vine page first.' };
+      }
+      try {
+        const res = await chrome.tabs.sendMessage(tabs[0].id, { type: 'START_RESCAN' });
+        return { ok: true, alreadyRunning: res?.alreadyRunning };
+      } catch (err) {
+        return { ok: false, error: err.message };
+      }
+    }
+
     default:
       return { error: `Unknown message type: ${msg.type}` };
   }

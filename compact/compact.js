@@ -88,8 +88,7 @@ function buildRow(p) {
     const wrap = document.createElement('div');
     wrap.className = 'img-wrap';
     const link = document.createElement('a');
-//    link.href = getVineSearchUrl(p.asin);
-    link.href = getVineSearchUrl(getFirstThreeWords(p.title));
+    link.href = getVineItemUrl(p);
     link.target = '_blank';
     link.rel = 'noopener';
     const img = document.createElement('img');
@@ -186,22 +185,6 @@ function buildRow(p) {
 
   return tr;
 }
-  /**
-   * Extracts the first three words from a given string.
-   * @param {string} text - The input text.
-   * @returns {string} - The first three words joined by spaces.
-   */
-  function getFirstThreeWords(text) {
-      if (typeof text !== "string") {
-          throw new TypeError("Input must be a string");
-      }
-
-      // Trim leading/trailing spaces and split by one or more whitespace characters
-      const words = text.trim().split(/\s+/);
-
-      // Return up to the first three words
-      return words.slice(0, 3).join(" ");
-  }
 function htmlToPlainText(html) {
   const div = document.createElement('div');
   div.innerHTML = html;
@@ -210,6 +193,18 @@ function htmlToPlainText(html) {
 
 function getVineSearchUrl(asin) {
   return `https://www.amazon.com/vine/vine-items?search=${encodeURIComponent(asin)}`;
+}
+
+function getVineItemUrl(product) {
+  if (product.recommendationId) {
+    const vineData = JSON.stringify({
+      asin:             product.asin,
+      isParentAsin:     false,
+      recommendationId: product.recommendationId
+    });
+    return `https://www.amazon.com/vine/vine-items?vine-data=${encodeURIComponent(vineData)}`;
+  }
+  return getVineSearchUrl(product.asin);
 }
 
 
