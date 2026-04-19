@@ -88,7 +88,7 @@ function buildRow(p) {
     const wrap = document.createElement('div');
     wrap.className = 'img-wrap';
     const link = document.createElement('a');
-    link.href = getVineSearchUrl(p.asin);
+    link.href = getVineSearchUrl(p.title);
     link.target = '_blank';
     link.rel = 'noopener';
     const img = document.createElement('img');
@@ -192,9 +192,14 @@ function htmlToPlainText(html) {
   return div.textContent || div.innerText || '';
 }
 
-function getVineSearchUrl(asin) {
-  return `https://vine.amazon.com/search?field-keywords=${encodeURIComponent(asin)}`;
+function getFirstWords(count, str) {
+  return str.split(' ').slice(0, count).join(' ');
 }
+
+function getVineSearchUrl(title) {
+  return `https://www.amazon.com/vine/vine-items?search=${getFirstWords(4,title)}`;
+}
+
 
 function updateStickyOffsets() {
   const header = document.querySelector('header');
