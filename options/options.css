@@ -239,6 +239,11 @@ main {
   margin-top: 8px;
 }
 
+.analytics-row {
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
 .export-import-row {
   display: flex;
   gap: 8px;

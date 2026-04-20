@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Vine Explorer — Product Release Heatmap</title>
+  <link rel="stylesheet" href="heatmap.css" />
+</head>
+<body>
+  <header>
+    <h1>&#127808; Vine Explorer — Product Release Heatmap</h1>
+    <div class="header-controls">
+      <label for="days-range">Days:</label>
+      <select id="days-range">
+        <option value="30">30</option>
+        <option value="60">60</option>
+        <option value="90" selected>90</option>
+      </select>
+      <span id="summary" class="summary"></span>
+    </div>
+  </header>
+
+  <main>
+    <div class="legend">
+      <span class="legend-label">Fewer</span>
+      <div class="legend-scale" id="legend-scale"></div>
+      <span class="legend-label">More</span>
+    </div>
+    <div class="heatmap-container">
+      <div class="heatmap-grid" id="heatmap-grid"></div>
+    </div>
+    <div id="tooltip" class="tooltip hidden"></div>
+  </main>
+
+  <script src="heatmap.js" type="module"></script>
+</body>
+</html>

@@ -135,6 +135,9 @@ function bindEvents() {
   }
 
   document.getElementById('btn-rescan').addEventListener('click', handleRescan);
+  document.getElementById('btn-heatmap').addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_HEATMAP' });
+  });
   document.getElementById('btn-export').addEventListener('click', handleExport);
   document.getElementById('btn-import').addEventListener('click', () => {
     document.getElementById('import-file').click();

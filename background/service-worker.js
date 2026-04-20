@@ -99,6 +99,10 @@ async function handleMessage(msg, sender) {
       chrome.tabs.create({ url: chrome.runtime.getURL('compact/compact.html') });
       return { ok: true };
 
+    case 'OPEN_HEATMAP':
+      chrome.tabs.create({ url: chrome.runtime.getURL('heatmap/heatmap.html') });
+      return { ok: true };
+
     // ── Scan coordination ──────────────────────────────────────────────────
     case 'CLAIM_SCAN_LOCK': {
       const state = await getScanState();
