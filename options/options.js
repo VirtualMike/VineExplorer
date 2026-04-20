@@ -101,11 +101,12 @@ async function handlePurge() {
 
 // ── Scan Settings ────────────────────────────────────────────────────────────
 async function loadScanSettings() {
-  const stored = await chrome.storage.local.get(SCAN_DEFAULTS);
+  const stored = await chrome.storage.local.get({ ...SCAN_DEFAULTS, weekStartDay: 0 });
   document.getElementById('page-delay').value  = stored.PageBackgroundScanDelay;
   document.getElementById('page-random').value = stored.PageBackgroundScanRandomness;
   document.getElementById('etv-delay').value   = stored.ETVBackgroundScanDelay;
   document.getElementById('etv-random').value  = stored.ETVBackgroundScanRandomness;
+  document.getElementById('week-start').value  = stored.weekStartDay;
 }
 
 function saveScanSettings() {
@@ -113,7 +114,8 @@ function saveScanSettings() {
     PageBackgroundScanDelay:      Math.max(500, parseInt(document.getElementById('page-delay').value, 10) || SCAN_DEFAULTS.PageBackgroundScanDelay),
     PageBackgroundScanRandomness: Math.max(0,   parseInt(document.getElementById('page-random').value, 10) || SCAN_DEFAULTS.PageBackgroundScanRandomness),
     ETVBackgroundScanDelay:       Math.max(500, parseInt(document.getElementById('etv-delay').value, 10) || SCAN_DEFAULTS.ETVBackgroundScanDelay),
-    ETVBackgroundScanRandomness:  Math.max(0,   parseInt(document.getElementById('etv-random').value, 10) || SCAN_DEFAULTS.ETVBackgroundScanRandomness)
+    ETVBackgroundScanRandomness:  Math.max(0,   parseInt(document.getElementById('etv-random').value, 10) || SCAN_DEFAULTS.ETVBackgroundScanRandomness),
+    weekStartDay:                 parseInt(document.getElementById('week-start').value, 10) || 0
   };
   chrome.storage.local.set(settings);
   const msg = document.getElementById('scan-saved');
@@ -130,7 +132,7 @@ function bindEvents() {
   });
   document.getElementById('btn-purge').addEventListener('click', handlePurge);
 
-  for (const id of ['page-delay', 'page-random', 'etv-delay', 'etv-random']) {
+  for (const id of ['page-delay', 'page-random', 'etv-delay', 'etv-random', 'week-start']) {
     document.getElementById(id).addEventListener('change', saveScanSettings);
   }
 

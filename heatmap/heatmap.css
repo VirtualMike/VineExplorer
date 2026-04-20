@@ -13,6 +13,8 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
   border-bottom: 1px solid #0f3460;
 }
 
@@ -25,7 +27,7 @@ header h1 {
 .header-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   font-size: 13px;
 }
 
@@ -38,9 +40,26 @@ header h1 {
   font-size: 13px;
 }
 
+.zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zoom-control input[type="range"] {
+  width: 100px;
+  accent-color: #3da5a9;
+}
+
+.zoom-label {
+  font-size: 11px;
+  color: #888;
+  min-width: 32px;
+}
+
 .summary {
   color: #aaa;
-  margin-left: 12px;
+  margin-left: 8px;
 }
 
 main {
@@ -77,7 +96,6 @@ main {
 .heatmap-grid {
   display: grid;
   gap: 2px;
-  grid-template-rows: auto repeat(24, 16px);
   width: max-content;
 }
 
@@ -86,8 +104,10 @@ main {
   color: #666;
   text-align: right;
   padding-right: 6px;
-  line-height: 16px;
   grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .day-label {
@@ -95,13 +115,17 @@ main {
   color: #666;
   text-align: center;
   line-height: 1.2;
-  writing-mode: horizontal-tb;
   white-space: nowrap;
 }
 
+.dow-label {
+  font-size: 10px;
+  color: #888;
+  text-align: center;
+  font-weight: 600;
+}
+
 .cell {
-  width: 14px;
-  height: 16px;
   border-radius: 2px;
   cursor: pointer;
   transition: outline 0.1s;
@@ -115,6 +139,12 @@ main {
 
 .cell-empty {
   background: #222244;
+}
+
+/* Week separator: a thin vertical line between weeks */
+.week-sep {
+  background: #0f3460;
+  width: 1px;
 }
 
 /* Tooltip */
