@@ -92,8 +92,22 @@
         <div class="db-stat"><span id="ds-etv">—</span><label>With ETV</label></div>
       </div>
 
+      <p class="hint">Items not seen during a full scan cycle are automatically hidden. Data is kept for the heatmap.</p>
+
       <div class="purge-row">
-        <label for="purge-days">Purge removed products older than</label>
+        <label for="hide-days">Hide items not seen in</label>
+        <select id="hide-days">
+          <option value="10">10 days</option>
+          <option value="30" selected>30 days</option>
+          <option value="60">60 days</option>
+          <option value="90">90 days</option>
+          <option value="120">120 days</option>
+        </select>
+        <button id="btn-hide-old" class="btn">Hide Now</button>
+      </div>
+
+      <div class="purge-row">
+        <label for="purge-days">Purge (delete) removed products older than</label>
         <select id="purge-days">
           <option value="7">7 days</option>
           <option value="14">14 days</option>
