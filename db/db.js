@@ -140,6 +140,59 @@ export async function markProductUnavailable(asin) {
   });
 }
 
+// Marks any currently-available product NOT in the seenAsins set as unavailable.
+// Used at the end of a complete scan cycle to auto-remove disappeared items.
+// Records remain in the DB (for heatmap history) but are excluded from default views.
+export async function markUnseenAsUnavailable(seenAsins) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx    = db.transaction(STORES.PRODUCTS, 'readwrite');
+    const store = tx.objectStore(STORES.PRODUCTS);
+    const req   = store.getAll();
+    let marked  = 0;
+
+    req.onsuccess = () => {
+      const now = Date.now();
+      for (const p of req.result) {
+        if (p.available !== false && !seenAsins.has(p.asin)) {
+          store.put({ ...p, available: false, removedDate: p.removedDate ?? now });
+          marked++;
+        }
+      }
+      tx.oncomplete = () => resolve(marked);
+    };
+
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// Marks products whose dateLastSeen is older than N days as unavailable.
+// Kept in DB for heatmap history — just hidden from default display.
+export async function markOlderThanDaysUnavailable(days) {
+  const db     = await openDB();
+  const cutoff = Date.now() - days * 86_400_000;
+
+  return new Promise((resolve, reject) => {
+    const tx    = db.transaction(STORES.PRODUCTS, 'readwrite');
+    const store = tx.objectStore(STORES.PRODUCTS);
+    const req   = store.getAll();
+    let marked  = 0;
+
+    req.onsuccess = () => {
+      const now = Date.now();
+      for (const p of req.result) {
+        if (p.available !== false && p.dateLastSeen && p.dateLastSeen < cutoff) {
+          store.put({ ...p, available: false, removedDate: p.removedDate ?? now });
+          marked++;
+        }
+      }
+      tx.oncomplete = () => resolve(marked);
+    };
+
+    req.onerror = () => reject(req.error);
+  });
+}
+
 export async function purgeRemovedProducts(olderThanDays = 30) {
   const db     = await openDB();
   const cutoff = Date.now() - olderThanDays * 86_400_000;

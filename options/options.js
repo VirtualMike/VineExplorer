@@ -99,6 +99,16 @@ async function handlePurge() {
   await loadStats();
 }
 
+async function handleHideOld() {
+  const days   = parseInt(document.getElementById('hide-days').value, 10);
+  const res    = await chrome.runtime.sendMessage({ type: 'MARK_OLDER_UNAVAILABLE', days });
+  const result = document.getElementById('purge-result');
+  result.textContent = `Hidden ${res?.marked ?? 0} product${(res?.marked ?? 0) === 1 ? '' : 's'} not seen in ${days} days.`;
+  result.classList.remove('hidden');
+  setTimeout(() => result.classList.add('hidden'), 4000);
+  await loadStats();
+}
+
 // ── Scan Settings ────────────────────────────────────────────────────────────
 async function loadScanSettings() {
   const stored = await chrome.storage.local.get({ ...SCAN_DEFAULTS, weekStartDay: 0 });
@@ -131,6 +141,7 @@ function bindEvents() {
     if (e.key === 'Enter') handleAddKeyword();
   });
   document.getElementById('btn-purge').addEventListener('click', handlePurge);
+  document.getElementById('btn-hide-old').addEventListener('click', handleHideOld);
 
   for (const id of ['page-delay', 'page-random', 'etv-delay', 'etv-random', 'week-start']) {
     document.getElementById(id).addEventListener('change', saveScanSettings);

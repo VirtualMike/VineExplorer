@@ -5,6 +5,8 @@ import {
   getProductCount,
   getAllProducts,
   markProductUnavailable,
+  markUnseenAsUnavailable,
+  markOlderThanDaysUnavailable,
   purgeRemovedProducts,
   getKeywords,
   addKeyword,
@@ -89,6 +91,16 @@ async function handleMessage(msg, sender) {
 
     case 'MARK_UNAVAILABLE':
       return { product: await markProductUnavailable(msg.asin) };
+
+    case 'MARK_UNSEEN_UNAVAILABLE': {
+      const marked = await markUnseenAsUnavailable(new Set(msg.seenAsins || []));
+      return { ok: true, marked };
+    }
+
+    case 'MARK_OLDER_UNAVAILABLE': {
+      const marked = await markOlderThanDaysUnavailable(msg.days);
+      return { ok: true, marked };
+    }
 
     case 'PURGE_REMOVED': {
       const deleted = await purgeRemovedProducts(msg.olderThanDays ?? 30);

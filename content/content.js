@@ -18,6 +18,9 @@
   let etvQueue     = [];
   let pageScanDone = false;
 
+  // Tracks ASINs seen during the current scan cycle for auto-remove at end
+  let seenAsinsThisScan = new Set();
+
   // Scan delay settings (loaded from chrome.storage.local)
   let scanSettings = {
     PageBackgroundScanDelay:      3000,
@@ -384,7 +387,12 @@
     scanAborted  = false;
     pageScanDone = false;
     etvQueue     = [];
-    console.log('[VineExplorer] ═══ BACKGROUND SCAN START ═══');
+    seenAsinsThisScan = new Set();
+
+    // Only auto-remove after a fresh start (all queues to be scanned).
+    // Resumed scans don't have the full picture, so they skip the sweep.
+    const isFreshScan = !(claim.state?.completedQueues?.length);
+    console.log(`[VineExplorer] ═══ BACKGROUND SCAN START ═══ (fresh=${isFreshScan})`);
 
     try {
       // Run page scanner and ETV scanner concurrently
@@ -396,6 +404,16 @@
       isBackgroundScanning = false;
       await send({ type: 'RELEASE_SCAN_LOCK' });
       if (!scanAborted) {
+        // Auto-remove: mark items not seen this scan as unavailable
+        // (only after a fresh full-cycle scan — resumed scans skip this)
+        if (isFreshScan && seenAsinsThisScan.size > 0) {
+          const res = await send({
+            type:      'MARK_UNSEEN_UNAVAILABLE',
+            seenAsins: [...seenAsinsThisScan]
+          });
+          console.log(`[VineExplorer] Auto-removed ${res?.marked ?? 0} items no longer in catalog`);
+        }
+
         await send({ type: 'RESET_SCAN_STATE' });
         await updateStatusCount();
         const stats = await send({ type: 'GET_STATS' });
@@ -455,6 +473,7 @@
           // Save basic product data and push items needing ETV to the shared queue
           for (const p of parsed.products) {
             if (scanAborted) break;
+            seenAsinsThisScan.add(p.asin);
             const productData = { ...p, category: queue };
             if (queue === 'encore') productData.encorePageFirstSeen = page;
 
