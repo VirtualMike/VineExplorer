@@ -89,6 +89,7 @@ function buildRow(p) {
     wrap.className = 'img-wrap';
     const link = document.createElement('a');
     link.href = getVineItemUrl(p);
+    console.log('Vine URL for', p.asin, 'is', link.href);
     link.target = '_blank';
     link.rel = 'noopener';
     const img = document.createElement('img');
