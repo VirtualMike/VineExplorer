@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Vine Explorer — Orders Dashboard</title>
+  <link rel="stylesheet" href="orders.css" />
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1>&#127808; Orders Dashboard</h1>
+      <nav id="breadcrumb" class="breadcrumb"></nav>
+    </div>
+    <div class="header-right">
+      <button id="btn-refresh" class="btn btn-secondary">&#8635; Refresh Orders</button>
+      <span id="refresh-status" class="refresh-status"></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="dashboard-main">
+      <div id="summary-cards" class="summary-cards"></div>
+      <div id="drill-view" class="drill-view"></div>
+    </section>
+
+    <aside class="sidebar">
+      <h2>&#128293; Top 20 Days</h2>
+      <p class="hint">By net ETV total</p>
+      <ol id="top-days" class="top-days"></ol>
+    </aside>
+  </main>
+
+  <!-- Day detail modal -->
+  <div id="day-modal" class="modal hidden">
+    <div class="modal-card" id="day-modal-card">
+      <button id="day-modal-close" class="modal-close" title="Close">&#10005;</button>
+      <div id="day-modal-content"></div>
+    </div>
+  </div>
+
+  <script src="orders.js" type="module"></script>
+</body>
+</html>

@@ -49,9 +49,11 @@ All inter-component communication uses `chrome.runtime.sendMessage`. The service
 | `GET_PRODUCT` / `GET_ALL_PRODUCTS` / `SEARCH_PRODUCTS` | Read product data |
 | `GET_KEYWORDS` / `ADD_KEYWORD` / `DELETE_KEYWORD` | Keyword management |
 | `GET_STATS` | Aggregate counts (total, available, with ETV, removed) |
-| `MARK_UNAVAILABLE` / `PURGE_REMOVED` | Lifecycle maintenance |
-| `OPEN_COMPACT` | Opens the compact view tab |
-| `REQUEST_RESCRAPE` | Triggers periodic availability recheck |
+| `MARK_UNAVAILABLE` / `MARK_UNSEEN_UNAVAILABLE` / `MARK_OLDER_UNAVAILABLE` / `PURGE_REMOVED` | Lifecycle maintenance |
+| `OPEN_COMPACT` / `OPEN_HEATMAP` / `OPEN_ORDERS` | Open full-page view tabs |
+| `REQUEST_RESCRAPE` / `TRIGGER_RESCAN` / `START_RESCAN` | Availability recheck / data backfill |
+| `CLAIM_SCAN_LOCK` / `RELEASE_SCAN_LOCK` / `GET_SCAN_STATE` / `UPDATE_SCAN_STATE` / `RESET_SCAN_STATE` | Background-scan coordination (single active tab) |
+| `TRIGGER_ORDER_IMPORT` / `IMPORT_ORDER_BYTES` / `GET_ALL_ORDERS` | Orders import + read (see Orders Dashboard) |
 
 ### Service Worker Resilience
 
@@ -102,3 +104,13 @@ Additional metrics. Number of new products by category. Number of items over $10
 
 ### Alerts
 When new products match keywords. A window Toast notification should be provided with a link to the amazon vine tile.
+
+### Orders Dashboard
+An interactive dashboard of the user's actual Vine orders, opened from the options page (`OPEN_ORDERS` → `orders/orders.html`).
+
+- **Data source**: the Vine itemized report, fetched from `/vine/api/get-tax-report?year=YYYY&fileType=XLSX` (returns JSON `{ result: { bytes: "<base64 xlsx>" } }`). The content script fetches it in the amazon.com origin (session cookies), then hands the base64 to the service worker.
+- **XLSX parsing**: `lib/xlsx.js` — a dependency-free ZIP+XLSX reader using the browser-native `DecompressionStream('deflate-raw')` (no library, no eval; MV3 CSP-safe). Columns: Order Number, ASIN, Product Name, Order Type (`ORDER`|`CANCELLATION`), Order Date, Shipped Date, Cancelled Date, Estimated Tax Value.
+- **Storage**: `orders` object store (DB v4), keyed `orderNumber|asin|orderType` — the Order Type is part of the key so an order and its later cancellation coexist. Cancellations carry a **negative** ETV, so summing ETV yields the net total automatically.
+- **Refresh**: a daily ~03:07 `chrome.alarms` (`orders-daily-import`) imports new orders when a `/vine/account` tab is open (else a reminder notification). Manual "Refresh Orders Now" button in settings. Import is idempotent (dedupe by key).
+- **UI**: drill-down Year → Month → Day → day-detail modal (item tiles: image, short name, ETV). A "Top 20 Days by net total" sidebar jumps straight to a day.
+- **Day's Haul image**: a split "Generate" button on the day modal (`orders/dayHaul.js`) with three backends — local HTML canvas compositor (default, free), Google Gemini (`gemini-2.5-flash-image`), and OpenAI (`gpt-image-1`). API keys live in `chrome.storage.local` (set on the options page); the chosen backend is remembered as the new default. `host_permissions` includes `generativelanguage.googleapis.com` and `api.openai.com` for the API calls.

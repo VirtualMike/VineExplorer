@@ -30,6 +30,7 @@
   };
 
   const isVineItemsPage = window.location.pathname.startsWith('/vine/vine-items');
+  const isAccountPage   = window.location.pathname.startsWith('/vine/account');
 
   // ── Init ───────────────────────────────────────────────────────────────────
   async function init() {
@@ -49,13 +50,17 @@
 
     window.addEventListener('beforeunload', () => { scanAborted = true; });
 
-    // Start: process current page ETVs then background scan
-    setTimeout(async () => {
-      if (isVineItemsPage && fetchQueue.length > 0) {
-        await runFetchQueueForCurrentPage();
-      }
-      await startBackgroundScan();
-    }, 3000);
+    // Start: process current page ETVs then background scan.
+    // Only the catalog (vine-items) pages drive scanning; the account page
+    // is present only to service order-import requests.
+    if (isVineItemsPage) {
+      setTimeout(async () => {
+        if (fetchQueue.length > 0) {
+          await runFetchQueueForCurrentPage();
+        }
+        await startBackgroundScan();
+      }, 3000);
+    }
   }
 
   async function loadSettings() {
@@ -662,9 +667,57 @@
           });
         }
         sendResponse({ ok: true, alreadyRunning: isRescanning });
+      } else if (msg.type === 'TRIGGER_ORDER_IMPORT') {
+        importOrders(msg.years).then(result => sendResponse(result));
+        return true; // async response
       }
       return true;
     });
+  }
+
+  // ── Order import ────────────────────────────────────────────────────────────
+  // Fetches the Vine itemized XLSX report (base64 JSON) and forwards the bytes
+  // to the service worker for parsing + DB import. Runs in the amazon.com origin
+  // so session cookies are sent automatically.
+
+  async function fetchTaxReportBytes(year) {
+    const url = `/vine/api/get-tax-report?year=${year}&fileType=XLSX`;
+    const res = await fetch(url, { credentials: 'include' });
+    if (res.url.includes('/ap/signin')) throw new Error('Session expired — please sign in to Amazon');
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching tax report for ${year}`);
+    const json = await res.json();
+    const b64  = json?.result?.bytes;
+    if (!b64) throw new Error(`No report bytes returned for ${year}`);
+    return b64;
+  }
+
+  async function importOrders(years) {
+    const yearList = (years && years.length) ? years : [new Date().getFullYear()];
+    const totals = { added: 0, updated: 0, skipped: 0, parsed: 0, years: [] };
+
+    for (const year of yearList) {
+      try {
+        setStatus(`Importing orders for ${year}…`);
+        const b64 = await fetchTaxReportBytes(year);
+        const res = await send({ type: 'IMPORT_ORDER_BYTES', year, b64 });
+        if (res?.ok) {
+          totals.added   += res.added   || 0;
+          totals.updated += res.updated || 0;
+          totals.skipped += res.skipped || 0;
+          totals.parsed  += res.parsed  || 0;
+          totals.years.push(year);
+          console.log(`[VineExplorer] [Orders] ${year}: +${res.added} added, ${res.updated} updated, ${res.skipped} skipped (${res.parsed} rows)`);
+        } else {
+          console.warn(`[VineExplorer] [Orders] ${year} import failed:`, res?.error);
+        }
+      } catch (err) {
+        console.error(`[VineExplorer] [Orders] ${year}:`, err.message);
+        totals.error = err.message;
+      }
+    }
+
+    setStatus(`Orders imported — ${totals.added} new`);
+    return { ok: true, ...totals };
   }
 
   // ── Pagination info ────────────────────────────────────────────────────────

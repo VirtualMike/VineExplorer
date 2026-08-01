@@ -2,12 +2,13 @@
 // Runs at the extension's origin (service worker, popup, options, compact view)
 
 const DB_NAME = 'VineExplorer';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 export const STORES = {
   PRODUCTS:   'products',
   KEYWORDS:   'keywords',
-  SCAN_STATE: 'scanState'
+  SCAN_STATE: 'scanState',
+  ORDERS:     'orders'
 };
 
 function openDB() {
@@ -39,6 +40,14 @@ function openDB() {
 
       if (oldVersion < 3) {
         db.createObjectStore(STORES.SCAN_STATE, { keyPath: 'key' });
+      }
+
+      if (oldVersion < 4) {
+        const os = db.createObjectStore(STORES.ORDERS, { keyPath: 'key' });
+        os.createIndex('orderDate',  'orderDate',  { unique: false });
+        os.createIndex('asin',       'asin',       { unique: false });
+        os.createIndex('orderType',  'orderType',  { unique: false });
+        os.createIndex('reportYear', 'reportYear', { unique: false });
       }
     };
 
@@ -306,6 +315,59 @@ export async function updateScanState(patch) {
 
 export async function resetScanState() {
   return updateScanState({ ...DEFAULT_SCAN_STATE });
+}
+
+// ── Orders ────────────────────────────────────────────────────────────────
+// Records come from the Vine itemized XLSX report. Keyed by
+// `orderNumber|asin|orderType` so an order and its later cancellation coexist.
+
+export async function upsertOrders(rows) {
+  const db = await openDB();
+  const stats = { added: 0, updated: 0, skipped: 0 };
+
+  return new Promise((resolve, reject) => {
+    const tx    = db.transaction(STORES.ORDERS, 'readwrite');
+    const store = tx.objectStore(STORES.ORDERS);
+
+    for (const row of rows) {
+      if (!row.key) continue;
+      const getReq = store.get(row.key);
+      getReq.onsuccess = () => {
+        const existing = getReq.result;
+        if (!existing) {
+          store.put(row);
+          stats.added++;
+        } else {
+          // Merge: fill in dates/etv if the new row has more complete data
+          const merged = {
+            ...existing,
+            shippedDate:   row.shippedDate   ?? existing.shippedDate,
+            cancelledDate: row.cancelledDate ?? existing.cancelledDate,
+            etv:           row.etv !== null && row.etv !== undefined ? row.etv : existing.etv,
+            productName:   row.productName   || existing.productName
+          };
+          const changed = merged.shippedDate   !== existing.shippedDate
+                         || merged.cancelledDate !== existing.cancelledDate
+                         || merged.etv           !== existing.etv
+                         || merged.productName   !== existing.productName;
+          if (changed) { store.put(merged); stats.updated++; }
+          else         { stats.skipped++; }
+        }
+      };
+    }
+
+    tx.oncomplete = () => resolve(stats);
+    tx.onerror    = () => reject(tx.error);
+  });
+}
+
+export async function getAllOrders() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORES.ORDERS, 'readonly').objectStore(STORES.ORDERS).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
 }
 
 // ── Export / Import ─────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ const SCAN_DEFAULTS = {
 async function init() {
   await loadKeywords();
   await loadScanSettings();
+  await loadApiKeys();
   await loadStats();
   bindEvents();
 }
@@ -151,6 +152,13 @@ function bindEvents() {
   document.getElementById('btn-heatmap').addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'OPEN_HEATMAP' });
   });
+  document.getElementById('btn-orders').addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_ORDERS' });
+  });
+  document.getElementById('btn-refresh-orders').addEventListener('click', handleRefreshOrders);
+  for (const id of ['gemini-key', 'openai-key']) {
+    document.getElementById(id).addEventListener('change', saveApiKeys);
+  }
   document.getElementById('btn-export').addEventListener('click', handleExport);
   document.getElementById('btn-import').addEventListener('click', () => {
     document.getElementById('import-file').click();
@@ -198,6 +206,44 @@ async function handleRescan() {
       loadStats();
     }
   });
+}
+
+// ── Orders & API keys ─────────────────────────────────────────────────────────
+async function loadApiKeys() {
+  const stored = await chrome.storage.local.get({ geminiApiKey: '', openaiApiKey: '' });
+  document.getElementById('gemini-key').value = stored.geminiApiKey;
+  document.getElementById('openai-key').value = stored.openaiApiKey;
+}
+
+function saveApiKeys() {
+  chrome.storage.local.set({
+    geminiApiKey: document.getElementById('gemini-key').value.trim(),
+    openaiApiKey: document.getElementById('openai-key').value.trim()
+  });
+  const msg = document.getElementById('orders-saved');
+  msg.textContent = 'Saved.';
+  msg.classList.remove('hidden');
+  setTimeout(() => msg.classList.add('hidden'), 2000);
+}
+
+async function handleRefreshOrders() {
+  const btn    = document.getElementById('btn-refresh-orders');
+  const status = document.getElementById('orders-status');
+  btn.disabled = true;
+  btn.textContent = 'Refreshing…';
+  status.textContent = '';
+
+  const thisYear = new Date().getFullYear();
+  const res = await chrome.runtime.sendMessage({ type: 'TRIGGER_ORDER_IMPORT', years: [thisYear, thisYear - 1] });
+
+  if (res?.ok) {
+    status.textContent = `+${res.added || 0} new, ${res.updated || 0} updated, ${res.skipped || 0} unchanged.`;
+  } else {
+    status.textContent = res?.error || 'Refresh failed.';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Refresh Orders Now';
+  setTimeout(() => { status.textContent = ''; }, 8000);
 }
 
 // ── Export / Import ──────────────────────────────────────────────────────────

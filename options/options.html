@@ -81,6 +81,33 @@
       </div>
     </section>
 
+    <!-- Orders & Day's Haul -->
+    <section class="card" id="section-orders">
+      <h2>&#128230; Orders &amp; Day's Haul</h2>
+      <p class="hint">Orders are imported from the Vine itemized report. A daily check imports new orders when an Amazon Vine account tab is open; you can also refresh manually.</p>
+      <div class="rescan-row">
+        <button id="btn-refresh-orders" class="btn btn-primary">Refresh Orders Now</button>
+        <span id="orders-status" class="hint"></span>
+      </div>
+
+      <hr class="section-divider" />
+      <h3>Day's Haul Image Generation</h3>
+      <p class="hint">API keys are stored locally on this device. Leave blank to use the free local canvas generator.</p>
+      <div class="settings-grid">
+        <div class="setting-group">
+          <label for="gemini-key">Google Gemini API Key</label>
+          <input type="password" id="gemini-key" autocomplete="off" placeholder="AIza…" />
+          <span class="hint">For gemini-2.5-flash-image (nano banana)</span>
+        </div>
+        <div class="setting-group">
+          <label for="openai-key">OpenAI API Key</label>
+          <input type="password" id="openai-key" autocomplete="off" placeholder="sk-…" />
+          <span class="hint">For gpt-image-1</span>
+        </div>
+      </div>
+      <p id="orders-saved" class="hint hidden">Saved.</p>
+    </section>
+
     <!-- Database management -->
     <section class="card" id="section-db">
       <h2>&#128451; Database</h2>
@@ -124,6 +151,7 @@
       <h3>Analytics</h3>
       <div class="analytics-row">
         <button id="btn-heatmap" class="btn btn-primary">Product Release Heatmap</button>
+        <button id="btn-orders" class="btn btn-primary">Orders Dashboard</button>
       </div>
 
       <hr class="section-divider" />

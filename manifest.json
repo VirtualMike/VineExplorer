@@ -10,7 +10,9 @@
     "tabs"
   ],
   "host_permissions": [
-    "https://www.amazon.com/vine/*"
+    "https://www.amazon.com/vine/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.openai.com/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js",
